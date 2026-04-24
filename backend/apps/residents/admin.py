@@ -1,3 +1,5 @@
 from django.contrib import admin
+from .models import ResidentProfile
 
-# Register your models here.
+
+admin.site.register(ResidentProfile)
