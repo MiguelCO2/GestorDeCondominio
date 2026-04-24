@@ -1,15 +1,50 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# ========================
+# DJANGO / PYTHON
+# ========================
 
-# dependencies
+# Entorno virtual
+venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Base de datos (normalmente NO se sube)
+db.sqlite3
+db.sqlite3-journal
+
+# Archivos de logs
+*.log
+
+# Media (archivos subidos por usuarios)
+media/
+
+# Archivos estáticos compilados
+staticfiles/
+
+# Archivos de entorno
+.env
+.env.*
+
+# Coverage / testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ========================
+# NODE / EXPO (lo que ya tenías)
+# ========================
+
 node_modules/
 
-# Expo
 .expo/
 dist/
 web-build/
 expo-env.d.ts
 
-# Native
 .kotlin/
 *.orig.*
 *.jks
@@ -18,26 +53,30 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 
-# Metro
 .metro-health-check*
 
-# debug
 npm-debug.*
 yarn-debug.*
 yarn-error.*
 
-# macOS
 .DS_Store
 *.pem
 
-# local env files
 .env*.local
 
-# typescript
 *.tsbuildinfo
 
 app-example
 
-# generated native folders
 /ios
 /android
+
+# ========================
+# EDITORES
+# ========================
+
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
