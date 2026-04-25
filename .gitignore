@@ -39,6 +39,7 @@ htmlcov/
 # ========================
 
 node_modules/
+node_modules/frontend/
 
 .expo/
 dist/
