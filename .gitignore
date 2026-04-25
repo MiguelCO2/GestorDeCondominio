@@ -35,10 +35,11 @@ htmlcov/
 .pytest_cache/
 
 # ========================
-# NODE / EXPO (lo que ya tenías)
+# NODE / EXPO
 # ========================
 
 node_modules/
+node_modules/frontend/
 
 .expo/
 dist/
@@ -80,3 +81,40 @@ app-example
 
 # Windows
 Thumbs.db
+
+# ========================
+# BASURA / TEMPORALES
+# ========================
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.seed
+*.pid
+*.pid.lock
+
+# ========================
+# CLAUDE / IA / AGENTES
+# ========================
+.claude/
+.claude-code/
+CLAUDE.md
+CLAUDE.local.md
+claude_desktop_config.json
+
+.cursor/
+.cursor-cache/
+.cursor-tmp/
+
+.aider*
+.llm/
+prompts/
+*.prompt
+*.prompts
+*.transcript
+
+# Frontend
+frontend/.reference/
+frontend/.agents/
+frontend/.node_modules/
