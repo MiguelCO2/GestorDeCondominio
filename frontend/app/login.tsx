@@ -16,7 +16,7 @@ import { colors, fontWeight, radius } from '../constants/theme';
 import { DEMO_CREDENTIALS, useAuth } from '../hooks/useAuth';
 
 export default function Login() {
-  const { user, signIn } = useAuth();
+  const { user, signIn, signInWithBiometrics } = useAuth();
   const router = useRouter();
 
   const [email, setEmail] = useState(DEMO_CREDENTIALS.email);
@@ -38,6 +38,21 @@ export default function Login() {
     setLoading(false);
     if (ok) router.replace('/(tabs)');
     else setError('Credenciales incorrectas');
+  };
+
+  const handleBiometricLogin = async () => {
+    setError(null);
+    setLoading(true);
+
+    const ok = await signInWithBiometrics();
+
+    setLoading(false);
+
+    if (ok) {
+      router.replace('/(tabs)');
+    } else {
+      setError('No se pudo iniciar sesión con biometría. Primero inicia sesión con correo y contraseña.');
+    }
   };
 
   return (
@@ -107,6 +122,11 @@ export default function Login() {
               Entrar
             </Btn>
           </View>
+
+          <Pressable style={styles.biometricButton} onPress={handleBiometricLogin}>
+            <Ionicons name="finger-print-outline" size={20} color={colors.primary} />
+            <Text style={styles.biometricText}>Iniciar sesión con huella</Text>
+          </Pressable>
 
           <Pressable style={{ marginTop: 14, alignItems: 'center' }}>
             <Text style={styles.forgot}>¿Olvidaste tu contraseña?</Text>
@@ -231,5 +251,22 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     color: '#1e3a8a',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  biometricButton: {
+    marginTop: 14,
+    height: 46,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    backgroundColor: colors.surfaceSoft,
+  },
+  biometricText: {
+    fontSize: 13,
+    color: colors.primary,
+    fontWeight: fontWeight.semibold,
   },
 });

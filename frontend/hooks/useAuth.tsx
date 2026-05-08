@@ -1,3 +1,5 @@
+import { authenticateWithBiometrics } from '@/services/biometric.service';
+import { clearSession, getSession, saveSession } from '@/services/session.service';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { api } from '../services/api';
 
@@ -18,8 +20,9 @@ interface AuthCtx {
   loading: boolean;
   accessToken: string | null;
   refreshToken: string | null;
+  signInWithBiometrics: () => Promise<boolean>;
   signIn: (email: string, password: string) => Promise<boolean>;
-  signOut: () => void;
+  signOut: () => Promise<void>;
 }
 
 type LoginResponse = {
@@ -85,6 +88,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       api.defaults.headers.common.Authorization = `Bearer ${access}`;
 
+      await saveSession({
+        access,
+        refresh,
+        user: normalizeUser(user),
+      });
+
       return true;
     } catch (error) {
       console.log('Login error:', error);
@@ -96,11 +105,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signOut = () => {
+  const signInWithBiometrics = async () => {
+    try {
+      const session = await getSession();
+
+      if (!session) {
+        return false;
+      }
+
+      const biometricResult = await authenticateWithBiometrics();
+
+      if (!biometricResult.success) {
+        return false;
+      }
+
+      setAccessToken(session.access);
+      setRefreshToken(session.refresh);
+      setUser(session.user);
+
+      api.defaults.headers.common.Authorization = `Bearer ${session.access}`;
+
+      return true;
+    } catch (error) {
+      console.log('Biometric login error:', error);
+      return false;
+    }
+  };
+
+  const signOut = async () => {
     setUser(null);
     setAccessToken(null);
     setRefreshToken(null);
     delete api.defaults.headers.common.Authorization;
+    await clearSession();
   };
 
   return (
@@ -111,6 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         accessToken,
         refreshToken,
         signIn,
+        signInWithBiometrics,
         signOut,
       }}
     >
