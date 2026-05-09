@@ -5,7 +5,7 @@ from .models import Announcement
 from .serializers import AnnouncementSerializer
 
 class AnnouncementViewSet(viewsets.ModelViewSet):
-    queryset = Announcement.objects.all().order_by('-created_at')
+    queryset = Announcement.objects.all().order_by('-pinned', '-created_at')
     serializer_class = AnnouncementSerializer
 
     @action(detail=False, methods=['get'])
