@@ -43,6 +43,11 @@ class Property(models.Model):
         related_name="rented_properties",
     )
 
+    monthly_fee = models.DecimalField("Monto mensual", max_digits=10, decimal_places=2, null=True, blank=True)
+    owner_start_date = models.DateField("Fecha de inicio del propietario", null=True, blank=True)
+    tenant_start_date = models.DateField("Fecha de inicio del inquilino", null=True, blank=True)
+
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
