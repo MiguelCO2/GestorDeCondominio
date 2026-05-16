@@ -131,6 +131,12 @@ export default function Login() {
           <Pressable style={{ marginTop: 14, alignItems: 'center' }}>
             <Text style={styles.forgot}>¿Olvidaste tu contraseña?</Text>
           </Pressable>
+          <Pressable
+            style={{ marginTop: 14, alignItems: 'center' }}
+            onPress={() => router.push('/register')}
+          >
+            <Text style={styles.forgot}>Crear una cuenta</Text>
+          </Pressable>
         </View>
 
         <View style={styles.demoBox}>
