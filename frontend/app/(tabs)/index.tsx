@@ -1,49 +1,152 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
+import { useRouter } from "expo-router";
+import { useCallback, useState } from "react";
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { IconBtn } from '../../components/ui/IconBtn';
-import { KPICard } from '../../components/ui/KPICard';
-import { Pill } from '../../components/ui/Pill';
-import { SectionHead } from '../../components/ui/SectionHead';
-import { Sparkline } from '../../components/ui/Sparkline';
-import { colors, fontWeight, radius, spacing, tones } from '../../constants/theme';
-import { ANNOUNCEMENTS } from '../../data/announcements';
-import { FINANCE_KPIS, EXPENSE_TREND, INCOME_TREND } from '../../data/finance';
-import { fmt, fmtNum } from '../../data/format';
-import { PAYMENTS } from '../../data/payments';
-import { useAuth } from '../../hooks/useAuth';
+import { IconBtn } from "../../components/ui/IconBtn";
+import { KPICard } from "../../components/ui/KPICard";
+import { Pill } from "../../components/ui/Pill";
+import { SectionHead } from "../../components/ui/SectionHead";
+import { Sparkline } from "../../components/ui/Sparkline";
+import {
+  colors,
+  fontWeight,
+  radius,
+  spacing,
+  tones,
+} from "../../constants/theme";
+
+import { EXPENSE_TREND, FINANCE_KPIS, INCOME_TREND } from "../../data/finance";
+import { fmt, fmtNum } from "../../data/format";
+import { PAYMENTS } from "../../data/payments";
+import { useAuth } from "../../hooks/useAuth";
+import { API_BASE_URL } from "../../services/api";
+
+import type { AnnouncementCategory } from "../../data/types";
 
 // Saludo según hora local. Es un detalle pequeño pero suma al feel de dashboard.
 function getGreeting() {
   const h = new Date().getHours();
-  if (h < 12) return 'Buenos días';
-  if (h < 19) return 'Buenas tardes';
-  return 'Buenas noches';
+  if (h < 12) return "Buenos días";
+  if (h < 19) return "Buenas tardes";
+  return "Buenas noches";
 }
 
 const QUICK_ACTIONS = [
-  { icon: 'qr-code',   label: 'Registrar\nvisita',   color: '#2563eb' },
-  { icon: 'calendar',  label: 'Nueva\nreserva',      color: '#0891b2' },
-  { icon: 'megaphone', label: 'Publicar\nanuncio',   color: '#ea580c' },
-  { icon: 'download',  label: 'Exportar\nreporte',   color: '#16a34a' },
+  { id: "visit", icon: "qr-code", label: "Registrar\nvisita", color: "#2563eb" },
+  { id: "booking", icon: "calendar", label: "Nueva\nreserva", color: "#0891b2" },
+  {
+    id: "announce",
+    icon: "megaphone",
+    label: "Publicar\nanuncio",
+    color: "#ea580c",
+  },
+  { id: "export", icon: "download", label: "Exportar\nreporte", color: "#16a34a" },
 ] as const;
+
+type HomeAnnouncement = {
+  id: number;
+  title: string;
+  body: string;
+  category: AnnouncementCategory;
+  pinned: boolean;
+  createdAt: string;
+};
+
+function mapApiAnnouncement(item: Record<string, unknown>): HomeAnnouncement {
+  const cat = item.category;
+  return {
+    id: item.id as number,
+    title: item.title as string,
+    body: item.content as string,
+    category:
+      cat === "maintenance"
+        ? "Mantenimiento"
+        : cat === "assembly"
+          ? "Asamblea"
+          : cat === "security"
+            ? "Seguridad"
+            : "Áreas Comunes",
+    pinned: !!item.pinned,
+    createdAt: (item.created_at as string) ?? "",
+  };
+}
+
+function homeCategoryTone(c: AnnouncementCategory) {
+  switch (c) {
+    case "Mantenimiento":
+      return "warning";
+    case "Asamblea":
+      return "primary";
+    case "Seguridad":
+      return "danger";
+    case "Áreas Comunes":
+      return "info";
+  }
+}
+
+function formatAnnouncementWhen(iso: string) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleDateString("es", { day: "numeric", month: "short" });
+}
 
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const firstName = user?.name?.split(' ')[0] ?? 'Andrea';
-  const pinned = ANNOUNCEMENTS.find((a) => a.pinned);
+  const firstName = user?.name?.split(" ")[0] ?? "Andrea";
+  const [latestAnnouncement, setLatestAnnouncement] =
+    useState<HomeAnnouncement | null>(null);
   const recentPayments = PAYMENTS.slice(0, 3);
 
-  const handleQuickAction = (label: string) => {
-    // Sin modales todavía: solo confirmamos el tap.
-    Alert.alert(label.replace('\n', ' '));
+  const fetchLatestAnnouncement = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/announcements/`);
+      const data: Record<string, unknown>[] = await res.json();
+      if (!Array.isArray(data) || data.length === 0) {
+        setLatestAnnouncement(null);
+        return;
+      }
+      const list = data.map(mapApiAnnouncement);
+      const latest = list.reduce((best, cur) => {
+        const tb = Date.parse(best.createdAt) || 0;
+        const tc = Date.parse(cur.createdAt) || 0;
+        return tc >= tb ? cur : best;
+      });
+      setLatestAnnouncement(latest);
+    } catch {
+      setLatestAnnouncement(null);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchLatestAnnouncement();
+    }, [fetchLatestAnnouncement]),
+  );
+
+  const handleQuickAction = (id: string, label: string) => {
+    if (id === "announce") {
+      router.push({
+        pathname: "/(tabs)/announcements",
+        params: { create: "1" },
+      });
+      return;
+    }
+    Alert.alert(label.replace("\n", " "));
   };
 
   return (
-    <SafeAreaView edges={['top']} style={styles.safe}>
+    <SafeAreaView edges={["top"]} style={styles.safe}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
@@ -52,9 +155,11 @@ export default function HomeScreen() {
         <View style={styles.hero}>
           <View style={styles.heroTop}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.greeting}>{getGreeting()}, {firstName}</Text>
+              <Text style={styles.greeting}>
+                {getGreeting()}, {firstName}
+              </Text>
               <Text style={styles.heroTitle}>
-                Condominio{'\n'}
+                Condominio{"\n"}
                 <Text style={styles.heroTitleLight}>Los Robles</Text>
               </Text>
             </View>
@@ -70,13 +175,20 @@ export default function HomeScreen() {
             <Text style={styles.balanceLabel}>Balance del condominio</Text>
             <View style={styles.balanceRow}>
               <Text style={styles.balanceCurrency}>Bs.</Text>
-              <Text style={styles.balanceAmount}>{fmtNum(FINANCE_KPIS.balance)}</Text>
+              <Text style={styles.balanceAmount}>
+                {fmtNum(FINANCE_KPIS.balance)}
+              </Text>
             </View>
             <View style={styles.balanceFooter}>
               <View style={styles.balanceCol}>
                 <Text style={styles.balanceColLabel}>INGRESOS</Text>
                 <View style={styles.balanceColRow}>
-                  <Text style={[styles.balanceColValue, { color: colors.incomeOnDark }]}>
+                  <Text
+                    style={[
+                      styles.balanceColValue,
+                      { color: colors.incomeOnDark },
+                    ]}
+                  >
                     +{fmtNum(FINANCE_KPIS.incomeMonth)}
                   </Text>
                   <Sparkline
@@ -92,7 +204,12 @@ export default function HomeScreen() {
               <View style={styles.balanceCol}>
                 <Text style={styles.balanceColLabel}>EGRESOS</Text>
                 <View style={styles.balanceColRow}>
-                  <Text style={[styles.balanceColValue, { color: colors.expenseOnDark }]}>
+                  <Text
+                    style={[
+                      styles.balanceColValue,
+                      { color: colors.expenseOnDark },
+                    ]}
+                  >
                     −{fmtNum(FINANCE_KPIS.expenseMonth)}
                   </Text>
                   <Sparkline
@@ -126,7 +243,7 @@ export default function HomeScreen() {
               value={String(FINANCE_KPIS.overdue)}
               sub={fmt(FINANCE_KPIS.overdueAmount)}
               tone="danger"
-              onPress={() => router.push('/debtors')}
+              onPress={() => router.push("/debtors")}
             />
           </View>
           <View style={styles.kpiCol}>
@@ -153,15 +270,20 @@ export default function HomeScreen() {
         <SectionHead
           title="Pagos recientes"
           action="Ver todos"
-          onAction={() => router.push('/(tabs)/payments')}
+          onAction={() => router.push("/(tabs)/payments")}
         />
         <View style={styles.paymentList}>
           {recentPayments.map((p) => {
-            const isMonthly = p.type === 'Mensualidad';
+            const isMonthly = p.type === "Mensualidad";
             const tone = isMonthly ? tones.primary : tones.success;
             return (
               <View key={p.id} style={styles.paymentRow}>
-                <View style={[styles.paymentIcon, { backgroundColor: tone.bgStrong }]}>
+                <View
+                  style={[
+                    styles.paymentIcon,
+                    { backgroundColor: tone.bgStrong },
+                  ]}
+                >
                   <Ionicons name="wallet" size={18} color={tone.fgStrong} />
                 </View>
                 <View style={styles.paymentInfo}>
@@ -183,11 +305,16 @@ export default function HomeScreen() {
         <View style={styles.actionsGrid}>
           {QUICK_ACTIONS.map((a) => (
             <Pressable
-              key={a.label}
-              onPress={() => handleQuickAction(a.label)}
-              style={({ pressed }) => [styles.actionTile, pressed && { opacity: 0.7 }]}
+              key={a.id}
+              onPress={() => handleQuickAction(a.id, a.label)}
+              style={({ pressed }) => [
+                styles.actionTile,
+                pressed && { opacity: 0.7 },
+              ]}
             >
-              <View style={[styles.actionIcon, { backgroundColor: a.color + '15' }]}>
+              <View
+                style={[styles.actionIcon, { backgroundColor: a.color + "15" }]}
+              >
                 <Ionicons name={a.icon} size={19} color={a.color} />
               </View>
               <Text style={styles.actionLabel}>{a.label}</Text>
@@ -199,23 +326,52 @@ export default function HomeScreen() {
         <SectionHead
           title="Último anuncio"
           action="Ver todos"
-          onAction={() => router.push('/(tabs)/announcements')}
+          onAction={() => router.push("/(tabs)/announcements")}
         />
-        {pinned ? (
-          <View style={styles.announcementWrap}>
+        {latestAnnouncement ? (
+          <Pressable
+            onPress={() => router.push("/(tabs)/announcements")}
+            style={({ pressed }) => [
+              styles.announcementWrap,
+              pressed && { opacity: 0.92 },
+            ]}
+          >
             <View style={styles.announcementCard}>
               <View style={styles.announcementHead}>
-                <Ionicons name="pin" size={14} color="#ca8a04" />
-                <Pill tone="warning">{pinned.category}</Pill>
-                <Text style={styles.announcementDate}>{pinned.date}</Text>
+                {latestAnnouncement.pinned ? (
+                  <Ionicons name="pin" size={14} color={colors.primary} />
+                ) : (
+                  <Ionicons
+                    name="megaphone-outline"
+                    size={14}
+                    color={colors.textMuted}
+                  />
+                )}
+                <Pill tone={homeCategoryTone(latestAnnouncement.category)}>
+                  {latestAnnouncement.category}
+                </Pill>
+                <Text style={styles.announcementDate}>
+                  {formatAnnouncementWhen(latestAnnouncement.createdAt)}
+                </Text>
               </View>
-              <Text style={styles.announcementTitle}>{pinned.title}</Text>
+              <Text style={styles.announcementTitle}>
+                {latestAnnouncement.title}
+              </Text>
               <Text style={styles.announcementBody} numberOfLines={2}>
-                {pinned.body}
+                {latestAnnouncement.body}
+              </Text>
+            </View>
+          </Pressable>
+        ) : (
+          <View style={styles.announcementWrap}>
+            <View style={styles.announcementCardMuted}>
+              <Text style={styles.announcementMutedText}>
+                Aún no hay anuncios. Usa «Publicar anuncio» o el botón + en
+                Anuncios.
               </Text>
             </View>
           </View>
-        ) : null}
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -236,12 +392,12 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 18,
     // Aproximación al degradé azul claro → blanco del prototipo.
-    backgroundColor: '#eff6ff',
+    backgroundColor: "#eff6ff",
   },
   heroTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
     marginBottom: 16,
   },
   greeting: {
@@ -261,95 +417,95 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.light,
   },
   heroActions: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 6,
   },
 
   // Balance card
   balanceCard: {
     backgroundColor: colors.surfaceDark,
-    borderRadius: radius['3xl'],
+    borderRadius: radius["3xl"],
     paddingVertical: 18,
     paddingHorizontal: 20,
-    overflow: 'hidden',
-    position: 'relative',
+    overflow: "hidden",
+    position: "relative",
   },
   balanceGlow: {
-    position: 'absolute',
+    position: "absolute",
     right: -30,
     top: -30,
     width: 140,
     height: 140,
     borderRadius: 70,
-    backgroundColor: 'rgba(37,99,235,0.25)',
+    backgroundColor: "rgba(37,99,235,0.25)",
     opacity: 0.8,
   },
   balanceLabel: {
     fontSize: 11,
     fontWeight: fontWeight.semibold,
-    color: 'rgba(255,255,255,0.6)',
+    color: "rgba(255,255,255,0.6)",
     letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     marginBottom: 6,
   },
   balanceRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
+    flexDirection: "row",
+    alignItems: "baseline",
     gap: 8,
     marginBottom: 10,
   },
   balanceCurrency: {
     fontSize: 16,
     fontWeight: fontWeight.medium,
-    color: 'rgba(255,255,255,0.6)',
+    color: "rgba(255,255,255,0.6)",
   },
   balanceAmount: {
     fontSize: 34,
     fontWeight: fontWeight.light,
-    color: '#fff',
+    color: "#fff",
     letterSpacing: -0.7,
-    fontVariant: ['tabular-nums'],
+    fontVariant: ["tabular-nums"],
   },
   balanceFooter: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 16,
-    alignItems: 'stretch',
+    alignItems: "stretch",
   },
   balanceCol: {
     flex: 0,
   },
   balanceColLabel: {
     fontSize: 10,
-    color: 'rgba(255,255,255,0.5)',
+    color: "rgba(255,255,255,0.5)",
     fontWeight: fontWeight.semibold,
     letterSpacing: 0.4,
     marginBottom: 2,
   },
   balanceColRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
   },
   balanceColValue: {
     fontSize: 15,
     fontWeight: fontWeight.semibold,
-    fontVariant: ['tabular-nums'],
+    fontVariant: ["tabular-nums"],
   },
   balanceDivider: {
     width: 1,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: "rgba(255,255,255,0.15)",
   },
 
   // KPI grid
   kpiGrid: {
     paddingHorizontal: spacing.screen,
     paddingTop: 14,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 12,
   },
   kpiCol: {
-    width: '48%',
+    width: "48%",
     flexGrow: 1,
   },
 
@@ -359,8 +515,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   paymentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -371,8 +527,8 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   paymentInfo: {
     flex: 1,
@@ -393,13 +549,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: fontWeight.bold,
     color: colors.text,
-    fontVariant: ['tabular-nums'],
+    fontVariant: ["tabular-nums"],
   },
 
   // Quick actions
   actionsGrid: {
     paddingHorizontal: spacing.screen,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 10,
   },
   actionTile: {
@@ -408,21 +564,21 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     paddingVertical: 12,
     paddingHorizontal: 4,
-    alignItems: 'center',
+    alignItems: "center",
     gap: 6,
   },
   actionIcon: {
     width: 38,
     height: 38,
     borderRadius: radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   actionLabel: {
     fontSize: 11,
     fontWeight: fontWeight.semibold,
-    color: '#334155',
-    textAlign: 'center',
+    color: "#334155",
+    textAlign: "center",
     lineHeight: 13,
   },
 
@@ -432,23 +588,36 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   announcementCard: {
-    backgroundColor: '#fffbeb',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#fde68a',
+    borderColor: colors.border,
     borderRadius: radius.xl,
     padding: 16,
   },
+  announcementCardMuted: {
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    borderRadius: radius.xl,
+    padding: 16,
+  },
+  announcementMutedText: {
+    fontSize: 13,
+    fontWeight: fontWeight.medium,
+    color: colors.textMuted,
+    lineHeight: 19,
+  },
   announcementHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     marginBottom: 6,
   },
   announcementDate: {
     fontSize: 11,
-    color: '#78716c',
+    color: colors.textMuted,
     fontWeight: fontWeight.medium,
-    marginLeft: 'auto',
+    marginLeft: "auto",
   },
   announcementTitle: {
     fontSize: 15,
@@ -459,7 +628,7 @@ const styles = StyleSheet.create({
   },
   announcementBody: {
     fontSize: 13,
-    color: '#44403c',
+    color: colors.textSecondary,
     lineHeight: 18,
   },
 });

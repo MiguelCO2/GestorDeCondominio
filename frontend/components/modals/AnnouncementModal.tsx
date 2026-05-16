@@ -1,7 +1,6 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import { useEffect, useState } from "react";
 import {
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -9,25 +8,54 @@ import {
   Text,
   TextInput,
   View,
-} from 'react-native';
+} from "react-native";
 
-import { colors, fontWeight, radius, tones } from '../../constants/theme';
-import type { AnnouncementCategory } from '../../data/types';
-import { Btn } from '../ui/Btn';
+import { colors, fontWeight, radius, tones } from "../../constants/theme";
+import type { AnnouncementCategory } from "../../data/types";
+import { Btn } from "../ui/Btn";
+
+const mapCategory = {
+  Mantenimiento: "maintenance",
+  Asamblea: "assembly",
+  Seguridad: "security",
+  "Áreas Comunes": "common",
+};
+
+export type AnnouncementEditDraft = {
+  id: number;
+  title: string;
+  body: string;
+  category: AnnouncementCategory;
+  pinned: boolean;
+};
 
 interface Props {
   visible: boolean;
+  editTarget?: AnnouncementEditDraft | null;
   onClose: () => void;
   onSubmit?: (payload: {
     title: string;
     body: string;
     category: AnnouncementCategory;
     pinned: boolean;
+    isEdit: boolean;
+  }) => void;
+  /** Mensajes de validación o error con la misma estética que el resto de la app */
+  onNotify?: (payload: {
+    title: string;
+    message: string;
+    variant: "error";
   }) => void;
 }
 
 // Wrapper local: label arriba + input/control debajo.
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
@@ -37,31 +65,102 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // Mapeo categoría → tono semántico para el grid de selección.
-const CATEGORIES: { value: AnnouncementCategory; tone: keyof typeof tones }[] = [
-  { value: 'Mantenimiento', tone: 'warning' },
-  { value: 'Asamblea',      tone: 'primary' },
-  { value: 'Seguridad',     tone: 'danger' },
-  { value: 'Áreas Comunes', tone: 'info' },
-];
+const CATEGORIES: { value: AnnouncementCategory; tone: keyof typeof tones }[] =
+  [
+    { value: "Mantenimiento", tone: "warning" },
+    { value: "Asamblea", tone: "primary" },
+    { value: "Seguridad", tone: "danger" },
+    { value: "Áreas Comunes", tone: "info" },
+  ];
 
-export function AnnouncementModal({ visible, onClose, onSubmit }: Props) {
-  const [category, setCategory] = useState<AnnouncementCategory>('Mantenimiento');
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+export function AnnouncementModal({
+  visible,
+  editTarget = null,
+  onClose,
+  onSubmit,
+  onNotify,
+}: Props) {
+  const [category, setCategory] =
+    useState<AnnouncementCategory>("Mantenimiento");
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
   const [pinned, setPinned] = useState(false);
 
-  const handleSubmit = () => {
-    if (!title.trim() || !body.trim()) {
-      Alert.alert('Faltan datos', 'Escribe un título y un mensaje.');
+  useEffect(() => {
+    if (!visible) {
+      setCategory("Mantenimiento");
+      setTitle("");
+      setBody("");
+      setPinned(false);
       return;
     }
-    onSubmit?.({ title: title.trim(), body: body.trim(), category, pinned });
-    // Reset
-    setCategory('Mantenimiento');
-    setTitle('');
-    setBody('');
-    setPinned(false);
-    onClose();
+    if (editTarget) {
+      setCategory(editTarget.category);
+      setTitle(editTarget.title);
+      setBody(editTarget.body);
+      setPinned(editTarget.pinned);
+    } else {
+      setCategory("Mantenimiento");
+      setTitle("");
+      setBody("");
+      setPinned(false);
+    }
+  }, [visible, editTarget]);
+
+  const isEdit = !!editTarget;
+
+  const handleSubmit = async () => {
+    if (!title.trim() || !body.trim()) {
+      onNotify?.({
+        title: "Faltan datos",
+        message: "Escribe un título y un mensaje para publicar el anuncio.",
+        variant: "error",
+      });
+      return;
+    }
+
+    const payload = {
+      title: title.trim(),
+      content: body.trim(),
+      category: mapCategory[category],
+      pinned,
+    };
+
+    try {
+      const url = isEdit
+        ? `http://192.168.0.199:8000/api/announcements/${editTarget!.id}/`
+        : "http://192.168.0.199:8000/api/announcements/";
+
+      const res = await fetch(url, {
+        method: isEdit ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      onSubmit?.({
+        title: title.trim(),
+        body: body.trim(),
+        category,
+        pinned,
+        isEdit,
+      });
+
+      onClose();
+    } catch (error) {
+      console.log(error);
+      onNotify?.({
+        title: isEdit ? "No se guardaron los cambios" : "No se pudo publicar",
+        message:
+          "Comprueba tu conexión o inténtalo de nuevo en unos segundos.",
+        variant: "error",
+      });
+    }
   };
 
   return (
@@ -76,7 +175,9 @@ export function AnnouncementModal({ visible, onClose, onSubmit }: Props) {
           <View style={styles.handle} />
 
           <View style={styles.header}>
-            <Text style={styles.title}>Nuevo anuncio</Text>
+            <Text style={styles.title}>
+              {isEdit ? "Editar anuncio" : "Nuevo anuncio"}
+            </Text>
             <Pressable style={styles.closeBtn} onPress={onClose}>
               <Ionicons name="close" size={17} color={colors.text} />
             </Pressable>
@@ -97,7 +198,11 @@ export function AnnouncementModal({ visible, onClose, onSubmit }: Props) {
                       onPress={() => setCategory(c.value)}
                       style={[
                         styles.catOpt,
-                        { backgroundColor: active ? t.bgStrong : colors.surfaceSoft },
+                        {
+                          backgroundColor: active
+                            ? t.bgStrong
+                            : colors.surfaceSoft,
+                        },
                       ]}
                     >
                       <Text
@@ -138,7 +243,10 @@ export function AnnouncementModal({ visible, onClose, onSubmit }: Props) {
               />
             </Field>
 
-            <Pressable style={styles.pinRow} onPress={() => setPinned((p) => !p)}>
+            <Pressable
+              style={styles.pinRow}
+              onPress={() => setPinned((p) => !p)}
+            >
               <Ionicons
                 name="pin"
                 size={18}
@@ -153,13 +261,13 @@ export function AnnouncementModal({ visible, onClose, onSubmit }: Props) {
               <View
                 style={[
                   styles.toggle,
-                  { backgroundColor: pinned ? colors.primary : '#cbd5e1' },
+                  { backgroundColor: pinned ? colors.primary : "#cbd5e1" },
                 ]}
               >
                 <View
                   style={[
                     styles.toggleDot,
-                    { alignSelf: pinned ? 'flex-end' : 'flex-start' },
+                    { alignSelf: pinned ? "flex-end" : "flex-start" },
                   ]}
                 />
               </View>
@@ -171,7 +279,7 @@ export function AnnouncementModal({ visible, onClose, onSubmit }: Props) {
               Cancelar
             </Btn>
             <Btn variant="primary" full icon="megaphone" onPress={handleSubmit}>
-              Publicar
+              {isEdit ? "Guardar cambios" : "Publicar"}
             </Btn>
           </View>
         </View>
@@ -183,30 +291,30 @@ export function AnnouncementModal({ visible, onClose, onSubmit }: Props) {
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15,23,42,0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: "rgba(15,23,42,0.5)",
+    justifyContent: "flex-end",
   },
   sheet: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderTopLeftRadius: radius.sheet,
     borderTopRightRadius: radius.sheet,
     paddingHorizontal: 22,
     paddingTop: 8,
     paddingBottom: 24,
-    maxHeight: '88%',
+    maxHeight: "88%",
   },
   handle: {
     width: 40,
     height: 4,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: "#e2e8f0",
     borderRadius: 2,
-    alignSelf: 'center',
+    alignSelf: "center",
     marginVertical: 4,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginTop: 6,
     marginBottom: 14,
   },
@@ -221,8 +329,8 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 10,
     backgroundColor: colors.surfaceMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   field: { marginBottom: 14 },
@@ -235,16 +343,16 @@ const styles = StyleSheet.create({
 
   // Grid 2x2 de categorías
   catGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
   catOpt: {
-    flexBasis: '48%',
+    flexBasis: "48%",
     flexGrow: 1,
     borderRadius: 12,
     padding: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
   catLabel: {
     fontSize: 13,
@@ -274,8 +382,8 @@ const styles = StyleSheet.create({
 
   // Toggle "Fijar en el inicio"
   pinRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
     padding: 12,
     backgroundColor: colors.surfaceSoft,
@@ -299,20 +407,20 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     padding: 2,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   toggleDot: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
 
   footer: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 10,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    borderTopColor: "#f1f5f9",
     paddingTop: 14,
     marginTop: 14,
   },
