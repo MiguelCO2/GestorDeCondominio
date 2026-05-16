@@ -22,6 +22,7 @@ interface AuthCtx {
   refreshToken: string | null;
   signInWithBiometrics: () => Promise<boolean>;
   signIn: (email: string, password: string) => Promise<boolean>;
+  signUp: (payload: RegisterPayload) => Promise<boolean>;
   signOut: () => Promise<void>;
 }
 
@@ -37,6 +38,16 @@ type LoginResponse = {
     role: string;
     is_active: boolean;
   };
+};
+
+type RegisterPayload = {
+  email: string;
+  username: string;
+  full_name: string;
+  phone: string;
+  role: string;
+  password: string;
+  password_confirm: string;
 };
 
 const Ctx = createContext<AuthCtx | null>(null);
@@ -105,6 +116,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const signUp = async (payload: RegisterPayload) => {
+    try {
+      const response = await api.post<LoginResponse>('/auth/register/', {
+        ...payload,
+        email: payload.email.trim().toLowerCase(),
+        username: payload.username.trim(),
+        full_name: payload.full_name.trim(),
+        phone: payload.phone.trim(),
+        role: 'resident',
+      });
+
+      const { access, refresh, user } = response.data;
+      const normalizedUser = normalizeUser(user);
+
+      setAccessToken(access);
+      setRefreshToken(refresh);
+      setUser(normalizedUser);
+
+      api.defaults.headers.common.Authorization = `Bearer ${access}`;
+
+      await saveSession({
+        access,
+        refresh,
+        user: normalizedUser,
+      });
+
+      return true;
+    } catch (error: any) {
+      console.log('Register error:', error?.response?.data || error?.message || error);
+      return false;
+    }
+  };
+
   const signInWithBiometrics = async () => {
     try {
       const session = await getSession();
@@ -148,6 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         accessToken,
         refreshToken,
         signIn,
+        signUp,
         signInWithBiometrics,
         signOut,
       }}
