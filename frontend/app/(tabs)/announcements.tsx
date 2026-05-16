@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { api } from "../../services/api";
 
 import { AnnouncementModal } from "../../components/modals/AnnouncementModal";
 import { ConfirmDialog } from "../../components/modals/ConfirmDialog";
@@ -166,13 +167,7 @@ export default function AnnouncementsScreen() {
     if (!deleteTarget?.id) return;
     setDeleteLoading(true);
     try {
-      const res = await fetch(
-        `http://192.168.0.199:8000/api/announcements/${deleteTarget.id}/`,
-        { method: "DELETE" },
-      );
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
+      await api.delete(`/announcements/${deleteTarget.id}/`);
       setDeleteTarget(null);
       await fetchAnnouncements();
       setNotice({
@@ -197,10 +192,8 @@ export default function AnnouncementsScreen() {
 
   const fetchAnnouncements = async () => {
     try {
-      const response = await fetch(
-        "http://192.168.0.199:8000/api/announcements/",
-      );
-      const data = await response.json();
+      const response = await api.get("/announcements/");
+      const data = response.data;
 
       const formatted = data
         .map((item: any) => ({

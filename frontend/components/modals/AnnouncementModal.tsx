@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { api } from "../../services/api";
 
 import { colors, fontWeight, radius, tones } from "../../constants/theme";
 import type { AnnouncementCategory } from "../../data/types";
@@ -127,20 +128,10 @@ export function AnnouncementModal({
     };
 
     try {
-      const url = isEdit
-        ? `http://192.168.0.199:8000/api/announcements/${editTarget!.id}/`
-        : "http://192.168.0.199:8000/api/announcements/";
-
-      const res = await fetch(url, {
-        method: isEdit ? "PATCH" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+      if (isEdit) {
+        await api.patch(`/announcements/${editTarget!.id}/`, payload);
+      } else {
+        await api.post("/announcements/", payload);
       }
 
       onSubmit?.({
