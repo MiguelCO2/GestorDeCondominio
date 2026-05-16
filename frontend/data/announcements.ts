@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
-
-const API = "http://192.168.0.199:8000/api/announcements/";
+import { api } from "../services/api";
 
 export function useAnnouncements() {
   const [announcements, setAnnouncements] = useState([]);
 
   useEffect(() => {
-    fetch(API)
-      .then((res) => res.json())
-      .then((data) => setAnnouncements(data))
+    api
+      .get("/announcements/")
+      .then((res) => setAnnouncements(res.data))
       .catch((err) => console.log(err));
   }, []);
 
