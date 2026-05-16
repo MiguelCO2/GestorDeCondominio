@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ComponentProps, useState } from 'react';
+import { ComponentProps, useState, useEffect } from 'react';
 import {
   Alert,
   Modal,
@@ -9,35 +9,24 @@ import {
   Text,
   TextInput,
   View,
+  Switch,
 } from 'react-native';
 
 import { colors, fontWeight, radius } from '../../constants/theme';
 import { Btn } from '../ui/Btn';
-import { Segmented } from '../ui/Segmented';
+import type { Resident } from '../../data/types';
 
-type ResidentKind = 'propietario' | 'inquilino';
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
 interface Props {
   visible: boolean;
   onClose: () => void;
-  onSubmit?: (payload: {
-    name: string;
-    unit: string;
-    phone: string;
-    email: string;
-    kind: ResidentKind;
-  }) => void;
+  initialData?: Resident | null;
+  onSubmit?: (payload: any) => void;
 }
 
 // Wrapper de campo: label + input.
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <View style={{ marginBottom: 14 }}>
       <Text style={styles.label}>{label}</Text>
@@ -78,62 +67,118 @@ function IconInput({
   );
 }
 
-export function ResidentModal({ visible, onClose, onSubmit }: Props) {
+export function ResidentModal({ visible, onClose, initialData, onSubmit }: Props) {
+  const isEdit = !!initialData;
+
+  // Campos para propietario / crear
   const [name, setName] = useState('');
   const [unit, setUnit] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [kind, setKind] = useState<ResidentKind>('propietario');
+  const [ownerStartDate, setOwnerStartDate] = useState('');
+
+  // Cuota mensual
+  const [monthlyFee, setMonthlyFee] = useState('');
+
+  // Campos para inquilino
+  const [hasTenant, setHasTenant] = useState(false);
+  const [tenantName, setTenantName] = useState('');
+  const [tenantPhone, setTenantPhone] = useState('');
+  const [tenantEmail, setTenantEmail] = useState('');
+  const [tenantStartDate, setTenantStartDate] = useState('');
+
+  useEffect(() => {
+    if (visible && initialData) {
+      setName(initialData.owner?.full_name || initialData.name || '');
+      setUnit(initialData.unit_number || initialData.unit || '');
+      setPhone(initialData.owner?.phone || initialData.phone || '');
+      setEmail(initialData.owner?.email || initialData.email || '');
+      setOwnerStartDate(initialData.owner_start_date || '');
+      setMonthlyFee(initialData.monthly_fee ? String(initialData.monthly_fee) : '');
+      
+      if (initialData.tenant && initialData.tenant.email) {
+        setHasTenant(true);
+        setTenantName(initialData.tenant.full_name || '');
+        setTenantPhone(initialData.tenant.phone || '');
+        setTenantEmail(initialData.tenant.email || '');
+        setTenantStartDate(initialData.tenant_start_date || '');
+      } else {
+        setHasTenant(false);
+        setTenantName('');
+        setTenantPhone('');
+        setTenantEmail('');
+        setTenantStartDate('');
+      }
+    } else if (visible && !initialData) {
+      // Reset
+      setName('');
+      setUnit('');
+      setPhone('');
+      setEmail('');
+      setOwnerStartDate('');
+      setMonthlyFee('');
+      setHasTenant(false);
+      setTenantName('');
+      setTenantPhone('');
+      setTenantEmail('');
+      setTenantStartDate('');
+    }
+  }, [visible, initialData]);
 
   const handleSubmit = () => {
-    if (!name.trim() || !unit.trim()) {
+    if (!name.trim() || (!isEdit && !unit.trim())) {
       Alert.alert('Faltan datos', 'Nombre y unidad son obligatorios.');
       return;
     }
-    // Validación trivial de email cuando se llena
-    if (email.trim() && !email.includes('@')) {
-      Alert.alert('Correo inválido', 'Revisa el formato del correo.');
-      return;
+    
+    const payload: any = {
+      unit_number: isEdit ? (initialData?.unit_number || initialData?.unit) : unit.trim(),
+      monthly_fee: monthlyFee ? parseFloat(monthlyFee) : null,
+      owner_start_date: ownerStartDate.trim() || null,
+      tenant_start_date: hasTenant ? (tenantStartDate.trim() || null) : null,
+      owner: {
+        full_name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+      },
+    };
+
+    if (hasTenant) {
+      if (!tenantName.trim() || !tenantEmail.trim()) {
+        Alert.alert('Faltan datos', 'Nombre y correo del inquilino son obligatorios.');
+        return;
+      }
+      payload.tenant = {
+        full_name: tenantName.trim(),
+        email: tenantEmail.trim(),
+        phone: tenantPhone.trim(),
+      };
+    } else {
+      payload.tenant = null;
     }
-    onSubmit?.({
-      name: name.trim(),
-      unit: unit.trim(),
-      phone: phone.trim(),
-      email: email.trim(),
-      kind,
-    });
-    // Reset
-    setName('');
-    setUnit('');
-    setPhone('');
-    setEmail('');
-    setKind('propietario');
+
+    onSubmit?.(payload);
     onClose();
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <View style={styles.sheet} onStartShouldSetResponder={() => true}>
           <View style={styles.handle} />
 
           <View style={styles.header}>
-            <Text style={styles.title}>Nuevo residente</Text>
+            <Text style={styles.title}>{isEdit ? 'Editar residente' : 'Nuevo residente'}</Text>
             <Pressable style={styles.closeBtn} onPress={onClose}>
               <Ionicons name="close" size={17} color={colors.text} />
             </Pressable>
           </View>
 
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            <Field label="Nombre completo">
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            
+            <Text style={styles.sectionTitle}>{isEdit ? 'Datos del Propietario' : 'Datos Principales'}</Text>
+
+            <Field label={isEdit ? 'Nombres del residente' : 'Nombre completo'}>
               <IconInput
                 icon="person-outline"
                 value={name}
@@ -143,12 +188,25 @@ export function ResidentModal({ visible, onClose, onSubmit }: Props) {
               />
             </Field>
 
-            <Field label="Unidad / Propiedad">
+            {!isEdit && (
+              <Field label="Unidad / Propiedad">
+                <IconInput
+                  icon="business-outline"
+                  value={unit}
+                  onChangeText={setUnit}
+                  placeholder="Ej. Torre A · 12-B"
+                />
+              </Field>
+            )}
+
+            <Field label="Correo electrónico">
               <IconInput
-                icon="business-outline"
-                value={unit}
-                onChangeText={setUnit}
-                placeholder="Ej. Torre A · 12-B"
+                icon="mail-outline"
+                value={email}
+                onChangeText={setEmail}
+                placeholder="correo@mail.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
               />
             </Field>
 
@@ -162,39 +220,103 @@ export function ResidentModal({ visible, onClose, onSubmit }: Props) {
               />
             </Field>
 
-            <Field label="Correo electrónico">
-              <IconInput
-                icon="mail-outline"
-                value={email}
-                onChangeText={setEmail}
-                placeholder="correo@mail.com"
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </Field>
+            {isEdit && (
+              <>
+                <Field label="Fecha desde cuando está el residente (YYYY-MM-DD)">
+                  <IconInput
+                    icon="calendar-outline"
+                    value={ownerStartDate}
+                    onChangeText={setOwnerStartDate}
+                    placeholder="Ej. 2024-01-15"
+                  />
+                </Field>
 
-            <Field label="Tipo de residente">
-              <Segmented<ResidentKind>
-                value={kind}
-                onChange={setKind}
-                options={[
-                  { value: 'propietario', label: 'Propietario' },
-                  { value: 'inquilino', label: 'Inquilino' },
-                ]}
-              />
-            </Field>
+                {!hasTenant && (
+                  <Field label="Monto mensual a pagar en el condominio ($)">
+                    <IconInput
+                      icon="cash-outline"
+                      value={monthlyFee}
+                      onChangeText={setMonthlyFee}
+                      placeholder="Ej. 50.00"
+                      keyboardType="phone-pad"
+                    />
+                  </Field>
+                )}
+
+                <View style={styles.switchRow}>
+                  <Text style={styles.switchLabel}>Opción de asignar inquilino</Text>
+                  <Switch
+                    value={hasTenant}
+                    onValueChange={setHasTenant}
+                    trackColor={{ false: colors.surfaceMuted, true: colors.primary }}
+                  />
+                </View>
+
+                {hasTenant && (
+                  <View style={styles.tenantSection}>
+                    <Text style={styles.sectionTitle}>Datos del Inquilino</Text>
+                    
+                    <Field label="Nombres">
+                      <IconInput
+                        icon="person-outline"
+                        value={tenantName}
+                        onChangeText={setTenantName}
+                        placeholder="Nombre del inquilino"
+                        autoCapitalize="words"
+                      />
+                    </Field>
+
+                    <Field label="Correo">
+                      <IconInput
+                        icon="mail-outline"
+                        value={tenantEmail}
+                        onChangeText={setTenantEmail}
+                        placeholder="inquilino@mail.com"
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                      />
+                    </Field>
+
+                    <Field label="Teléfono">
+                      <IconInput
+                        icon="call-outline"
+                        value={tenantPhone}
+                        onChangeText={setTenantPhone}
+                        placeholder="+58 412 0000000"
+                        keyboardType="phone-pad"
+                      />
+                    </Field>
+
+                    <Field label="Monto mensual a pagar de condominio ($)">
+                      <IconInput
+                        icon="cash-outline"
+                        value={monthlyFee}
+                        onChangeText={setMonthlyFee}
+                        placeholder="Ej. 50.00"
+                        keyboardType="phone-pad"
+                      />
+                    </Field>
+                    
+                    <Field label="Fecha desde cuando está el inquilino (YYYY-MM-DD)">
+                      <IconInput
+                        icon="calendar-outline"
+                        value={tenantStartDate}
+                        onChangeText={setTenantStartDate}
+                        placeholder="Ej. 2024-05-01"
+                      />
+                    </Field>
+                  </View>
+                )}
+              </>
+            )}
+
           </ScrollView>
 
           <View style={styles.footer}>
             <Btn variant="secondary" full onPress={onClose}>
               Cancelar
             </Btn>
-            <Btn
-              variant="primary"
-              full
-              icon="person-add"
-              onPress={handleSubmit}
-            >
+            <Btn variant="primary" full icon="checkmark" onPress={handleSubmit}>
               Guardar
             </Btn>
           </View>
@@ -217,7 +339,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingTop: 8,
     paddingBottom: 24,
-    maxHeight: '88%',
+    maxHeight: '90%',
   },
   handle: {
     width: 40,
@@ -248,14 +370,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: fontWeight.bold,
+    color: colors.text,
+    marginTop: 4,
+    marginBottom: 12,
+  },
   label: {
     fontSize: 12,
     fontWeight: fontWeight.semibold,
     color: colors.textSecondary,
     marginBottom: 6,
   },
-
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -274,7 +401,27 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
     paddingVertical: 0,
   },
-
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.borderSubtle,
+    marginVertical: 12,
+  },
+  switchLabel: {
+    fontSize: 15,
+    fontWeight: fontWeight.semibold,
+    color: colors.text,
+  },
+  tenantSection: {
+    backgroundColor: '#f8fafc',
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
   footer: {
     flexDirection: 'row',
     gap: 10,

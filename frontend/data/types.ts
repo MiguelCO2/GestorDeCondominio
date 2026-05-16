@@ -3,8 +3,23 @@
 
 export type ResidentStatus = 'al-dia' | 'moroso' | 'pendiente';
 
+export interface PropertyUser {
+  id: number;
+  full_name: string;
+  email: string;
+  phone: string;
+}
+
 export interface Resident {
   id: number;
+  unit_number: string;
+  monthly_fee: string | null;
+  owner_start_date: string | null;
+  tenant_start_date: string | null;
+  owner: PropertyUser | null;
+  tenant: PropertyUser | null;
+  
+  // UI computed fields for backwards compatibility or easy rendering
   name: string;
   unit: string;
   phone: string;

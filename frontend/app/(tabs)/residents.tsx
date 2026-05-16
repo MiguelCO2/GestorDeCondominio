@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Alert,
   Modal,
@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   View,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -27,26 +28,65 @@ import {
   radius,
   spacing,
 } from '../../constants/theme';
-import { RESIDENTS } from '../../data/residents';
 import type { Resident, ResidentStatus } from '../../data/types';
+import { api } from '../../services/api';
 
 type Filter = 'todos' | 'aldia' | 'moroso';
 
-// Tono y label de la pill según el estado del residente.
 function statusPill(status: ResidentStatus) {
   if (status === 'al-dia') return <Pill tone="success">Al día</Pill>;
   if (status === 'moroso') return <Pill tone="danger">Moroso</Pill>;
   return <Pill tone="warning">Pendiente</Pill>;
 }
 
+// Mapea la respuesta del backend a la interfaz del frontend
+function mapPropertyToResident(prop: any): Resident {
+  const activeUser = prop.owner || prop.tenant; // El principal es el owner
+  const name = activeUser?.full_name || activeUser?.email || 'Desconocido';
+  const initial = name.charAt(0).toUpperCase();
+  
+  return {
+    ...prop,
+    name,
+    unit: prop.unit_number,
+    phone: activeUser?.phone || 'Sin teléfono',
+    email: activeUser?.email || 'Sin correo',
+    since: prop.owner_start_date || prop.tenant_start_date || 'N/A',
+    status: 'al-dia', // Placeholder for now, could be derived from payments
+    avatar: initial,
+    color: '#2563eb', // Can add random color generator if needed
+  };
+}
+
 export default function ResidentsScreen() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('todos');
+  const [residents, setResidents] = useState<Resident[]>([]);
   const [selected, setSelected] = useState<Resident | null>(null);
-  const [showNew, setShowNew] = useState(false);
+  
+  const [showModal, setShowModal] = useState(false);
+  const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
+  const [loading, setLoading] = useState(true);
 
-  // Filtrado inline: estado + búsqueda por nombre.
-  const filtered = RESIDENTS.filter((r) => {
+  const fetchResidents = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/properties/');
+      const mapped = res.data.map(mapPropertyToResident);
+      setResidents(mapped);
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Error', 'No se pudieron cargar los residentes');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchResidents();
+  }, [fetchResidents]);
+
+  const filtered = residents.filter((r) => {
     if (filter === 'aldia' && r.status !== 'al-dia') return false;
     if (filter === 'moroso' && r.status !== 'moroso') return false;
     if (search && !r.name.toLowerCase().includes(search.toLowerCase())) {
@@ -55,8 +95,56 @@ export default function ResidentsScreen() {
     return true;
   });
 
-  const handleNew = () => setShowNew(true);
+  const handleNew = () => {
+    setModalMode('add');
+    setShowModal(true);
+  };
+  
+  const handleEdit = () => {
+    setModalMode('edit');
+    setShowModal(true);
+  };
+  
   const closeDetail = () => setSelected(null);
+
+  const handleDelete = () => {
+    if (!selected) return;
+    Alert.alert(
+      'Eliminar',
+      `¿Seguro que deseas eliminar a ${selected.name} y la unidad ${selected.unit}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.delete(`/properties/${selected.id}/`);
+              closeDetail();
+              fetchResidents();
+            } catch (err) {
+              Alert.alert('Error', 'No se pudo eliminar el residente.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleModalSubmit = async (payload: any) => {
+    try {
+      if (modalMode === 'add') {
+        await api.post('/properties/', payload);
+      } else if (modalMode === 'edit' && selected) {
+        await api.put(`/properties/${selected.id}/`, payload);
+        closeDetail();
+      }
+      fetchResidents();
+    } catch (err) {
+      console.error(err);
+      Alert.alert('Error', 'Hubo un problema al guardar el residente.');
+    }
+  };
 
   return (
     <SafeAreaView edges={['top']} style={styles.safe}>
@@ -66,7 +154,7 @@ export default function ResidentsScreen() {
       >
         <AppBar
           title="Residentes"
-          subtitle={`${RESIDENTS.length} activos`}
+          subtitle={`${residents.length} activos`}
           large
           right={<IconBtn icon="add" tone="primary" onPress={handleNew} />}
         />
@@ -90,7 +178,9 @@ export default function ResidentsScreen() {
         </View>
 
         <View style={styles.list}>
-          {filtered.length === 0 ? (
+          {loading ? (
+            <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
+          ) : filtered.length === 0 ? (
             <Text style={styles.empty}>Sin resultados</Text>
           ) : (
             filtered.map((r) => (
@@ -128,7 +218,7 @@ export default function ResidentsScreen() {
       <FAB onPress={handleNew} />
 
       <Modal
-        visible={selected !== null}
+        visible={selected !== null && !showModal}
         transparent
         animationType="slide"
         onRequestClose={closeDetail}
@@ -175,12 +265,19 @@ export default function ResidentsScreen() {
                   label="Residente desde"
                   value={selected.since}
                 />
+                {selected.monthly_fee && (
+                   <InfoRow
+                    icon="cash"
+                    label="Monto mensual"
+                    value={`$${selected.monthly_fee}`}
+                  />
+                )}
 
                 <View style={styles.footer}>
                   <Btn
                     variant="subtleDanger"
                     icon="trash"
-                    onPress={closeDetail}
+                    onPress={handleDelete}
                   >
                     Eliminar
                   </Btn>
@@ -188,7 +285,7 @@ export default function ResidentsScreen() {
                     variant="primary"
                     full
                     icon="create"
-                    onPress={closeDetail}
+                    onPress={handleEdit}
                   >
                     Editar
                   </Btn>
@@ -200,9 +297,10 @@ export default function ResidentsScreen() {
       </Modal>
 
       <ResidentModal
-        visible={showNew}
-        onClose={() => setShowNew(false)}
-        onSubmit={(r) => Alert.alert('Residente guardado', r.name)}
+        visible={showModal}
+        onClose={() => setShowModal(false)}
+        initialData={modalMode === 'edit' ? selected : null}
+        onSubmit={handleModalSubmit}
       />
     </SafeAreaView>
   );
