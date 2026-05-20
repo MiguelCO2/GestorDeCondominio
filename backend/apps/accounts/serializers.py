@@ -65,7 +65,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         },
     )
 
-        password_confirm = serializers.CharField(
+    password_confirm = serializers.CharField(
         write_only=True,
         min_length=6,
         error_messages={
@@ -148,7 +148,7 @@ class RegisterSerializer(serializers.ModelSerializer):
                 "password_confirm": "Las contraseñas no coinciden."
             })
 
-    return attrs
+        return attrs
 
     def create(self, validated_data):
         validated_data.pop("password_confirm")
