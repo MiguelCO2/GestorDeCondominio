@@ -22,7 +22,7 @@ interface AuthCtx {
   refreshToken: string | null;
   signInWithBiometrics: () => Promise<boolean>;
   signIn: (email: string, password: string) => Promise<boolean>;
-  signUp: (payload: RegisterPayload) => Promise<boolean>;
+  signUp: (payload: RegisterPayload) => Promise<{ ok: boolean; message?: string }>;
   signOut: () => Promise<void>;
 }
 
@@ -126,28 +126,111 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         phone: payload.phone.trim(),
         role: 'resident',
       });
-
+  
       const { access, refresh, user } = response.data;
       const normalizedUser = normalizeUser(user);
-
+  
       setAccessToken(access);
       setRefreshToken(refresh);
       setUser(normalizedUser);
-
+  
       api.defaults.headers.common.Authorization = `Bearer ${access}`;
-
+  
       await saveSession({
         access,
         refresh,
         user: normalizedUser,
       });
-
-      return true;
+  
+      return {
+        ok: true,
+      };
     } catch (error: any) {
-      console.log('Register error:', error?.response?.data || error?.message || error);
-      return false;
+      const backendError = error?.response?.data;
+  
+      console.log('Register error:', backendError || error?.message || error);
+  
+      if (backendError?.email?.[0]) {
+        return {
+          ok: false,
+          message: backendError.email[0],
+        };
+      }
+  
+      if (backendError?.username?.[0]) {
+        return {
+          ok: false,
+          message: backendError.username[0],
+        };
+      }
+  
+      if (backendError?.phone?.[0]) {
+        return {
+          ok: false,
+          message: backendError.phone[0],
+        };
+      }
+  
+      if (backendError?.password?.[0]) {
+        return {
+          ok: false,
+          message: backendError.password[0],
+        };
+      }
+  
+      if (backendError?.password_confirm?.[0]) {
+        return {
+          ok: false,
+          message: backendError.password_confirm[0],
+        };
+      }
+  
+      if (backendError?.detail) {
+        return {
+          ok: false,
+          message: backendError.detail,
+        };
+      }
+  
+      return {
+        ok: false,
+        message: 'No se pudo crear la cuenta. Verifica los datos.',
+      };
     }
   };
+
+  // const signUp = async (payload: RegisterPayload) => {
+  //   try {
+  //     const response = await api.post<LoginResponse>('/auth/register/', {
+  //       ...payload,
+  //       email: payload.email.trim().toLowerCase(),
+  //       username: payload.username.trim(),
+  //       full_name: payload.full_name.trim(),
+  //       phone: payload.phone.trim(),
+  //       role: 'resident',
+  //     });
+
+  //     const { access, refresh, user } = response.data;
+  //     const normalizedUser = normalizeUser(user);
+
+  //     setAccessToken(access);
+  //     setRefreshToken(refresh);
+  //     setUser(normalizedUser);
+
+  //     api.defaults.headers.common.Authorization = `Bearer ${access}`;
+
+  //     await saveSession({
+  //       access,
+  //       refresh,
+  //       user: normalizedUser,
+  //     });
+
+  //     return true;
+  //   } catch (error: any) {
+  //     console.log('Register error:', error?.response?.data || error?.message || error);
+  //     return false;
+  //   }
+  // };
 
   const signInWithBiometrics = async () => {
     try {
