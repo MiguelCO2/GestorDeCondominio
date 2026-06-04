@@ -18,6 +18,7 @@ class UserSerializer(serializers.ModelSerializer):
             "phone",
             "role",
             "is_active",
+            "profile_image",
         )
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -188,3 +189,59 @@ class LoginSerializer(serializers.Serializer):
             "refresh": str(refresh),
             "user": UserSerializer(user).data,
         }
+
+class ProfileUpdateSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(
+        required=False,
+        validators=[],
+        error_messages={
+            "invalid": "Ingresa un correo electrónico válido.",
+            "blank": "El correo electrónico no puede estar vacío.",
+        },
+    )
+
+    full_name = serializers.CharField(
+        required=False,
+        max_length=150,
+        error_messages={
+            "blank": "El nombre completo no puede estar vacío.",
+            "max_length": "El nombre completo no puede tener más de 150 caracteres.",
+        },
+    )
+
+    phone = serializers.CharField(
+        required=False,
+        error_messages={
+            "blank": "El teléfono no puede estar vacío.",
+        },
+    )
+
+    profile_image = serializers.ImageField(required=False)
+
+    class Meta:
+        model = User
+        fields = (
+            "email",
+            "full_name",
+            "phone",
+            "profile_image",
+        )
+
+    def validate_email(self, value):
+        value = value.lower().strip()
+        user = self.context["request"].user
+
+        if User.objects.exclude(id=user.id).filter(email=value).exists():
+            raise serializers.ValidationError("Este correo ya está registrado en otra cuenta.")
+
+        return value
+
+    def validate_phone(self, value):
+        clean_phone = "".join(filter(str.isdigit, value))
+
+        if len(clean_phone) < 10 or len(clean_phone) > 15:
+            raise serializers.ValidationError(
+                "Ingresa un número de teléfono válido. Debe tener entre 10 y 15 dígitos."
+            )
+
+        return clean_phone

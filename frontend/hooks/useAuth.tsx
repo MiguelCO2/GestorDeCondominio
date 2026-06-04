@@ -11,6 +11,7 @@ interface User {
   phone: string;
   role: string;
   is_active: boolean;
+  profile_image?: string | null;
   name: string;
   initials: string;
 }
@@ -23,6 +24,7 @@ interface AuthCtx {
   signInWithBiometrics: () => Promise<boolean>;
   signIn: (email: string, password: string) => Promise<boolean>;
   signUp: (payload: RegisterPayload) => Promise<{ ok: boolean; message?: string }>;
+  updateProfile: (payload: FormData) => Promise<{ ok: boolean; message?: string }>;
   signOut: () => Promise<void>;
 }
 
@@ -37,6 +39,7 @@ type LoginResponse = {
     phone: string;
     role: string;
     is_active: boolean;
+    profile_image?: string | null;
   };
 };
 
@@ -232,6 +235,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   //   }
   // };
 
+  const updateProfile = async (payload: FormData) => {
+    try {
+      const response = await api.patch<LoginResponse['user']>(
+        '/auth/profile/',
+        payload,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+      );
+  
+      const normalizedUser = normalizeUser(response.data);
+  
+      setUser(normalizedUser);
+  
+      const session = await getSession();
+  
+      if (session) {
+        await saveSession({
+          access: session.access,
+          refresh: session.refresh,
+          user: normalizedUser,
+        });
+      }
+  
+      return {
+        ok: true,
+      };
+    } catch (error: any) {
+      const backendError = error?.response?.data;
+  
+      console.log('Update profile error:', backendError || error?.message || error);
+  
+      const getErrorMessage = (field: string) => {
+        const fieldError = backendError?.[field];
+  
+        if (Array.isArray(fieldError)) {
+          return fieldError[0];
+        }
+  
+        if (typeof fieldError === 'string') {
+          return fieldError;
+        }
+  
+        return null;
+      };
+  
+      const message =
+        getErrorMessage('email') ||
+        getErrorMessage('phone') ||
+        getErrorMessage('full_name') ||
+        getErrorMessage('profile_image') ||
+        backendError?.detail ||
+        'No se pudo actualizar el perfil.';
+  
+      return {
+        ok: false,
+        message,
+      };
+    }
+  };
+
   const signInWithBiometrics = async () => {
     try {
       const session = await getSession();
@@ -276,6 +342,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refreshToken,
         signIn,
         signUp,
+        updateProfile,
         signInWithBiometrics,
         signOut,
       }}
