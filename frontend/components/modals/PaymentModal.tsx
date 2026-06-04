@@ -19,12 +19,13 @@ import { Segmented } from '../ui/Segmented';
 interface Props {
   visible: boolean;
   onClose: () => void;
+  submitting?: boolean;
   onSubmit?: (payload: {
     type: PaymentType;
     amount: number;
     method: PaymentMethod;
     resident: string;
-  }) => void;
+  }) => void | Promise<void>;
 }
 
 // Pequeño wrapper para cada campo del formulario (label + input).
@@ -37,25 +38,28 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function PaymentModal({ visible, onClose, onSubmit }: Props) {
+export function PaymentModal({ visible, onClose, onSubmit, submitting = false }: Props) {
   const [type, setType] = useState<PaymentType>('Mensualidad');
   const [amount, setAmount] = useState('85.00');
   const [method, setMethod] = useState<PaymentMethod>('Transferencia');
   const [resident, setResident] = useState('');
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const n = parseFloat(amount.replace(',', '.'));
     if (!resident.trim() || isNaN(n) || n <= 0) {
       Alert.alert('Faltan datos', 'Completa residente y un monto válido.');
       return;
     }
-    onSubmit?.({ type, amount: n, method, resident: resident.trim() });
-    // Reset para próxima apertura
-    setResident('');
-    setAmount('85.00');
-    setType('Mensualidad');
-    setMethod('Transferencia');
-    onClose();
+    try {
+      await onSubmit?.({ type, amount: n, method, resident: resident.trim() });
+      setResident('');
+      setAmount('85.00');
+      setType('Mensualidad');
+      setMethod('Transferencia');
+      onClose();
+    } catch {
+      // El padre muestra el error; el modal permanece abierto.
+    }
   };
 
   return (
@@ -129,8 +133,14 @@ export function PaymentModal({ visible, onClose, onSubmit }: Props) {
             <Btn variant="secondary" full onPress={onClose}>
               Cancelar
             </Btn>
-            <Btn variant="primary" full icon="checkmark" onPress={handleSubmit}>
-              Confirmar
+            <Btn
+              variant="primary"
+              full
+              icon="checkmark"
+              onPress={handleSubmit}
+              disabled={submitting}
+            >
+              {submitting ? 'Guardando…' : 'Confirmar'}
             </Btn>
           </View>
         </View>
