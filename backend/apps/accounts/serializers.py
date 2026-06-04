@@ -1,3 +1,5 @@
+import re
+
 from django.contrib.auth import authenticate
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -19,8 +21,59 @@ class UserSerializer(serializers.ModelSerializer):
         )
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=6)
-    password_confirm = serializers.CharField(write_only=True, min_length=6)
+    
+    username = serializers.CharField(
+    validators=[],
+    min_length=3,
+    max_length=30,
+    error_messages={
+        "required":"El nombre de usuario es obligatorio.",
+        "invalid": "Ingresa un nombre de usuario valido",
+        "blank": "El correo electrónico no puede estar vacío.",
+        "min_length": "El nombre de usuario debe tener al menos 3 caracteres.",
+        "max_length": "El nombre de usuario no puede tener más de 30 caracteres.",
+        }
+    )
+
+    email = serializers.EmailField(
+    validators=[],
+    error_messages={
+        "required": "El correo electrónico es obligatorio.",
+        "invalid": "Ingresa un correo electrónico válido.",
+        "blank": "El correo electrónico no puede estar vacío.",
+        }
+    )
+
+    phone = serializers.CharField(
+        min_length=10,
+        max_length=15,
+        error_messages={
+            "required": "El teléfono es obligatorio.",
+            "blank": "El teléfono no puede estar vacío.",
+            "min_length": "El teléfono debe tener al menos 10 dígitos.",
+            "max_length": "El teléfono no puede tener más de 15 dígitos.",
+        },
+    )
+
+    password = serializers.CharField(
+        write_only=True,
+        min_length=6,
+        error_messages={
+            "required": "La contraseña es obligatoria.",
+            "blank": "La contraseña no puede estar vacía.",
+            "min_length": "La contraseña debe tener al menos 6 caracteres.",
+        },
+    )
+
+    password_confirm = serializers.CharField(
+        write_only=True,
+        min_length=6,
+        error_messages={
+            "required": "Debes confirmar la contraseña.",
+            "blank": "La confirmación de contraseña no puede estar vacía.",
+            "min_length": "La confirmación debe tener al menos 6 caracteres.",
+        },
+    )
 
     class Meta:
         model = User
@@ -40,7 +93,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         if len(clean_phone) < 10 or len(clean_phone) > 15:
             raise serializers.ValidationError(
-                "Ingresa un número de teléfono válido."
+                "Ingresa un número de teléfono válido. Debe tener entre 10 y 15 dígitos."
             )
 
         return clean_phone
@@ -58,6 +111,11 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         if User.objects.filter(username=value).exists():
             raise serializers.ValidationError("Este nombre de usuario ya está registrado.")
+        
+        if not re.match(r"^[a-zA-Z0-9_]+$", value):
+            raise serializers.ValidationError(
+                "Ingresa un nombre de usuario válido. Solo puede contener letras, números y guion bajo."
+            )
 
         return value
 
@@ -72,7 +130,20 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        if attrs["password"] != attrs["password_confirm"]:
+        password = attrs.get("password")
+        password_confirm = attrs.get("password_confirm")
+
+        if not re.search(r"[A-Z]", password):
+            raise serializers.ValidationError({
+                "password": "La contraseña debe contener al menos una letra mayúscula."
+            })
+
+        if not re.search(r"[^A-Za-z0-9]", password):
+            raise serializers.ValidationError({
+                "password": "La contraseña debe contener al menos un carácter especial."
+            })
+
+        if password != password_confirm:
             raise serializers.ValidationError({
                 "password_confirm": "Las contraseñas no coinciden."
             })
