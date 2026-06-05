@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
@@ -18,6 +19,7 @@ import {
 import { Btn } from '../../components/ui/Btn';
 import { colors, fontWeight, radius } from '../../constants/theme';
 import { useAuth } from '../../hooks/useAuth';
+import { API_BASE_URL } from '../../services/api';
 
 type SelectedImage = {
   uri: string;
@@ -99,7 +101,7 @@ export default function ProfileScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.75,
@@ -116,13 +118,27 @@ export default function ProfileScreen() {
         return;
       }
 
-      const fileName = asset.fileName || `profile-${Date.now()}.jpg`;
-
+      const manipulatedImage = await ImageManipulator.manipulateAsync(
+        asset.uri,
+        [
+          {
+            resize: {
+              width: 800,
+            },
+          },
+        ],
+        {
+          compress: 0.7,
+          format: ImageManipulator.SaveFormat.JPEG,
+        }
+      );
+      
       setSelectedImage({
-        uri: asset.uri,
-        name: fileName,
-        type: asset.mimeType || 'image/jpeg',
+        uri: manipulatedImage.uri,
+        name: `profile-${Date.now()}.jpg`,
+        type: 'image/jpeg',
       });
+      
     } catch (err) {
       console.log('Pick image error:', err);
       setError('Ocurrió un error al seleccionar la imagen.');
@@ -203,7 +219,32 @@ export default function ProfileScreen() {
     );
   }
 
-  const profileImageUri = selectedImage?.uri || user.profile_image || null;
+  const getMediaUrl = (path?: string | null) => {
+    if (!path) return null;
+  
+    if (path.startsWith('http')) {
+      return path;
+    }
+  
+    const baseUrl = API_BASE_URL.replace('/api', '');
+  
+    return `${baseUrl}${path}`;
+  };
+
+  const getRoleLabel = (role?: string | null) => {
+    const roles: Record<string, string> = {
+      super_admin: 'Super administrador',
+      admin: 'Administrador',
+      board: 'Junta de condominio',
+      resident: 'Residente',
+      security: 'Seguridad',
+      accountant: 'Contador',
+    };
+  
+    return roles[role || ''] || 'Usuario';
+  };
+
+  const profileImageUri = selectedImage?.uri || getMediaUrl(user.profile_image);
 
   return (
     <KeyboardAvoidingView
@@ -246,7 +287,7 @@ export default function ProfileScreen() {
           </Pressable>
 
           <Text style={styles.name}>{user.name}</Text>
-          <Text style={styles.role}>{user.role}</Text>
+          <Text style={styles.role}>{getRoleLabel(user.role)}</Text>
 
           <Pressable onPress={pickImage} disabled={pickingImage}>
             <Text style={styles.changePhotoText}>

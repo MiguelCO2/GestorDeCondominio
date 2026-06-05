@@ -115,7 +115,12 @@ export default function Register() {
               });
               
               if (result.ok) {
-                router.replace('/(tabs)');
+                router.replace({
+                  pathname: '/verify-email',
+                  params: {
+                    email: result.email || email.trim().toLowerCase(),
+                  },
+                });
               } else {
                 setError(result.message || 'No se pudo crear la cuenta. Verifica los datos.');
               }
