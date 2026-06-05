@@ -11,6 +11,7 @@ interface User {
   phone: string;
   role: string;
   is_active: boolean;
+  profile_image?: string | null;
   name: string;
   initials: string;
 }
@@ -22,7 +23,10 @@ interface AuthCtx {
   refreshToken: string | null;
   signInWithBiometrics: () => Promise<boolean>;
   signIn: (email: string, password: string) => Promise<boolean>;
-  signUp: (payload: RegisterPayload) => Promise<boolean>;
+  signUp: (payload: RegisterPayload) => Promise<{ ok: boolean; message?: string; email?: string }>;
+  verifyEmail: (payload: VerifyEmailPayload) => Promise<{ ok: boolean; message?: string }>;
+  resendVerificationCode: (email: string) => Promise<{ ok: boolean; message?: string }>;
+  updateProfile: (payload: FormData) => Promise<{ ok: boolean; message?: string }>;
   signOut: () => Promise<void>;
 }
 
@@ -37,6 +41,7 @@ type LoginResponse = {
     phone: string;
     role: string;
     is_active: boolean;
+    profile_image?: string | null;
   };
 };
 
@@ -48,6 +53,16 @@ type RegisterPayload = {
   role: string;
   password: string;
   password_confirm: string;
+};
+
+type RegisterResponse = {
+  message: string;
+  email: string;
+};
+
+type VerifyEmailPayload = {
+  email: string;
+  code: string;
 };
 
 const Ctx = createContext<AuthCtx | null>(null);
@@ -118,7 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (payload: RegisterPayload) => {
     try {
-      const response = await api.post<LoginResponse>('/auth/register/', {
+      const response = await api.post<RegisterResponse>('/auth/register/', {
         ...payload,
         email: payload.email.trim().toLowerCase(),
         username: payload.username.trim(),
@@ -126,26 +141,230 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         phone: payload.phone.trim(),
         role: 'resident',
       });
+  
+      return {
+        ok: true,
+        message: response.data.message,
+        email: response.data.email,
+      };
+    } catch (error: any) {
+      const backendError = error?.response?.data;
+  
+      console.log('Register error:', backendError || error?.message || error);
+  
+      const getErrorMessage = (field: string) => {
+        const fieldError = backendError?.[field];
+  
+        if (Array.isArray(fieldError)) {
+          return fieldError[0];
+        }
+  
+        if (typeof fieldError === 'string') {
+          return fieldError;
+        }
+  
+        return null;
+      };
+  
+      const message =
+        getErrorMessage('email') ||
+        getErrorMessage('username') ||
+        getErrorMessage('phone') ||
+        getErrorMessage('password') ||
+        getErrorMessage('password_confirm') ||
+        backendError?.detail ||
+        'No se pudo crear la cuenta. Verifica los datos.';
+  
+      return {
+        ok: false,
+        message,
+      };
+    }
+  };
 
+  const verifyEmail = async (payload: VerifyEmailPayload) => {
+    try {
+      const response = await api.post<LoginResponse>('/auth/verify-email/', {
+        email: payload.email.trim().toLowerCase(),
+        code: payload.code.trim(),
+      });
+  
       const { access, refresh, user } = response.data;
       const normalizedUser = normalizeUser(user);
-
+  
       setAccessToken(access);
       setRefreshToken(refresh);
       setUser(normalizedUser);
-
+  
       api.defaults.headers.common.Authorization = `Bearer ${access}`;
-
+  
       await saveSession({
         access,
         refresh,
         user: normalizedUser,
       });
-
-      return true;
+  
+      return {
+        ok: true,
+        message: 'Correo verificado correctamente.',
+      };
     } catch (error: any) {
-      console.log('Register error:', error?.response?.data || error?.message || error);
-      return false;
+      const backendError = error?.response?.data;
+  
+      console.log('Verify email error:', backendError || error?.message || error);
+  
+      const getErrorMessage = (field: string) => {
+        const fieldError = backendError?.[field];
+  
+        if (Array.isArray(fieldError)) {
+          return fieldError[0];
+        }
+  
+        if (typeof fieldError === 'string') {
+          return fieldError;
+        }
+  
+        return null;
+      };
+  
+      const message =
+        getErrorMessage('email') ||
+        getErrorMessage('code') ||
+        backendError?.detail ||
+        'No se pudo verificar el correo.';
+  
+      return {
+        ok: false,
+        message,
+      };
+    }
+  };
+
+  const resendVerificationCode = async (email: string) => {
+    try {
+      const response = await api.post<{ message: string }>('/auth/resend-verification/', {
+        email: email.trim().toLowerCase(),
+      });
+  
+      return {
+        ok: true,
+        message: response.data.message,
+      };
+    } catch (error: any) {
+      const backendError = error?.response?.data;
+  
+      console.log('Resend verification error:', backendError || error?.message || error);
+  
+      let message = 'No se pudo reenviar el código.';
+  
+      if (backendError?.email) {
+        message = Array.isArray(backendError.email)
+          ? backendError.email[0]
+          : backendError.email;
+      } else if (backendError?.detail) {
+        message = backendError.detail;
+      }
+  
+      return {
+        ok: false,
+        message,
+      };
+    }
+  };
+
+  // const signUp = async (payload: RegisterPayload) => {
+  //   try {
+  //     const response = await api.post<LoginResponse>('/auth/register/', {
+  //       ...payload,
+  //       email: payload.email.trim().toLowerCase(),
+  //       username: payload.username.trim(),
+  //       full_name: payload.full_name.trim(),
+  //       phone: payload.phone.trim(),
+  //       role: 'resident',
+  //     });
+
+  //     const { access, refresh, user } = response.data;
+  //     const normalizedUser = normalizeUser(user);
+
+  //     setAccessToken(access);
+  //     setRefreshToken(refresh);
+  //     setUser(normalizedUser);
+
+  //     api.defaults.headers.common.Authorization = `Bearer ${access}`;
+
+  //     await saveSession({
+  //       access,
+  //       refresh,
+  //       user: normalizedUser,
+  //     });
+
+  //     return true;
+  //   } catch (error: any) {
+  //     console.log('Register error:', error?.response?.data || error?.message || error);
+  //     return false;
+  //   }
+  // };
+
+  const updateProfile = async (payload: FormData) => {
+    try {
+      const response = await api.patch<LoginResponse['user']>(
+        '/auth/profile/',
+        payload,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+      );
+  
+      const normalizedUser = normalizeUser(response.data);
+  
+      setUser(normalizedUser);
+  
+      const session = await getSession();
+  
+      if (session) {
+        await saveSession({
+          access: session.access,
+          refresh: session.refresh,
+          user: normalizedUser,
+        });
+      }
+  
+      return {
+        ok: true,
+      };
+    } catch (error: any) {
+      const backendError = error?.response?.data;
+  
+      console.log('Update profile error:', backendError || error?.message || error);
+  
+      const getErrorMessage = (field: string) => {
+        const fieldError = backendError?.[field];
+  
+        if (Array.isArray(fieldError)) {
+          return fieldError[0];
+        }
+  
+        if (typeof fieldError === 'string') {
+          return fieldError;
+        }
+  
+        return null;
+      };
+  
+      const message =
+        getErrorMessage('email') ||
+        getErrorMessage('phone') ||
+        getErrorMessage('full_name') ||
+        getErrorMessage('profile_image') ||
+        backendError?.detail ||
+        'No se pudo actualizar el perfil.';
+  
+      return {
+        ok: false,
+        message,
+      };
     }
   };
 
@@ -193,6 +412,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refreshToken,
         signIn,
         signUp,
+        verifyEmail,
+        resendVerificationCode,
+        updateProfile,
         signInWithBiometrics,
         signOut,
       }}

@@ -35,11 +35,29 @@ export default function Register() {
 
     };
 
+    const isValidUsername = (value: string) => {
+        const usernameRegex = /^[a-zA-Z0-9_]+$/;
+        const cleanUsername = value.trim();
+      
+        return (
+          cleanUsername.length >= 3 &&
+          cleanUsername.length <= 30 &&
+          usernameRegex.test(cleanUsername)
+        );
+      };
+
     const isValidPhone = (value: string) => {
         const cleanPhone = value.replace(/\D/g, '');
         return cleanPhone.length >= 10 && cleanPhone.length <= 15;
 
     };
+
+    const isValidPassword = (value: string) => {
+        const hasUppercase = /[A-Z]/.test(value);
+        const hasSpecialCharacter = /[^A-Za-z0-9]/.test(value);
+      
+        return value.length >= 6 && hasUppercase && hasSpecialCharacter;
+      };
 
     const handleRegister = async () => {
         if (
@@ -49,7 +67,7 @@ export default function Register() {
             !password ||
             !passwordConfirm
         ) {
-            setError('Completa todos los campos obligatorios.');
+            setError('Completar todos los campos es obligatorio.');
             return;
         }
 
@@ -58,15 +76,22 @@ export default function Register() {
             return;
         }
 
+        if (!isValidUsername(username)) {
+            setError(
+              'El nombre de usuario debe tener entre 3 y 30 caracteres. Solo puede contener letras, números y guion bajo.');
+            return;
+        }
+        
         const cleanPhone = phone.replace(/\D/g, '');
 
         if (cleanPhone.length < 10 || cleanPhone.length > 15) {
-            setError('Ingresa un número de teléfono válido.');
+            setError('Ingresa un número de teléfono válido. Debe tener entre 10 y 15 dígitos.');
             return;
         }
 
-        if (password.length < 6) {
-            setError('La contraseña debe tener al menos 6 caracteres.');
+        if (!isValidPassword(password)) {
+            setError(
+              'La contraseña debe tener al menos 6 caracteres, una mayúscula y un carácter especial.');
             return;
         }
 
@@ -79,21 +104,26 @@ export default function Register() {
             setError(null);
             setLoading(true);
 
-            const ok = await signUp({
-                full_name: fullName,
-                username,
+            const result = await signUp({
+                full_name: fullName.trim(),
+                username: username.trim(),
                 phone: cleanPhone,
-                email,
+                email: email.trim().toLowerCase(),
                 role,
                 password,
                 password_confirm: passwordConfirm,
-            });
-
-            if (ok) {
-                router.replace('/(tabs)');
-            } else {
-                setError('No se pudo crear la cuenta. Verifica los datos.');
-            }
+              });
+              
+              if (result.ok) {
+                router.replace({
+                  pathname: '/verify-email',
+                  params: {
+                    email: result.email || email.trim().toLowerCase(),
+                  },
+                });
+              } else {
+                setError(result.message || 'No se pudo crear la cuenta. Verifica los datos.');
+              }
         } catch (error) {
             console.log('Register screen error:', error);
             setError('Ocurrió un error al crear la cuenta.');
