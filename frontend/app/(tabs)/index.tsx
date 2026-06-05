@@ -166,6 +166,13 @@ export default function HomeScreen() {
             <View style={styles.heroActions}>
               <IconBtn icon="search" />
               <IconBtn icon="notifications" badge />
+
+              <Pressable
+                style={styles.profileButton}
+                onPress={() => router.push('/profile')}
+              >
+                <Text style={styles.profileInitials}>{user?.initials || 'U'}</Text>
+              </Pressable>
             </View>
           </View>
 
@@ -419,6 +426,23 @@ const styles = StyleSheet.create({
   heroActions: {
     flexDirection: "row",
     gap: 6,
+  },
+
+  profileButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  
+  profileInitials: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: fontWeight.bold,
   },
 
   // Balance card
