@@ -1,11 +1,34 @@
 import re
 
+from django.conf import settings
+from django.core.mail import send_mail
+
 from django.contrib.auth import authenticate
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import User
 
+
+def send_email_verification_code(user):
+    code = user.generate_email_verification_code()
+    user.save(update_fields=[
+        "email_verification_code",
+        "email_verification_expires_at",
+    ])
+
+    send_mail(
+        subject="Código de verificación - Residencias Los Robles",
+        message=(
+            f"Hola {user.full_name or user.username},\n\n"
+            f"Tu código de verificación es: {code}\n\n"
+            "Este código vence en 10 minutos.\n\n"
+            "Si no solicitaste este registro, puedes ignorar este mensaje."
+        ),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[user.email],
+        fail_silently=False,
+    )
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -158,26 +181,100 @@ class RegisterSerializer(serializers.ModelSerializer):
 
         user = User(**validated_data)
         user.set_password(password)
+        user.is_active = False
+        user.email_verified = False
         user.save()
 
+        send_email_verification_code(user)
+
         return user
+
+class VerifyEmailSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(max_length=6)
+
+    def validate(self, attrs):
+        email = attrs.get("email").lower().strip()
+        code = attrs.get("code").strip()
+
+        user = User.objects.filter(email=email).first()
+
+        if not user:
+            raise serializers.ValidationError({
+                "email": "No existe una cuenta con este correo."
+            })
+
+        if user.email_verified and user.is_active:
+            raise serializers.ValidationError({
+                "detail": "Este correo ya fue verificado."
+            })
+
+        if not user.is_email_verification_code_valid(code):
+            raise serializers.ValidationError({
+                "code": "El código es inválido o ya venció."
+            })
+
+        attrs["user"] = user
+        return attrs
+
+    def save(self):
+        user = self.validated_data["user"]
+
+        user.email_verified = True
+        user.is_active = True
+        user.email_verification_code = ""
+        user.email_verification_expires_at = None
+        user.save(update_fields=[
+            "email_verified",
+            "is_active",
+            "email_verification_code",
+            "email_verification_expires_at",
+        ])
+
+        return user
+
+class ResendEmailVerificationSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        value = value.lower().strip()
+
+        user = User.objects.filter(email=value).first()
+
+        if not user:
+            raise serializers.ValidationError("No existe una cuenta con este correo.")
+
+        if user.email_verified and user.is_active:
+            raise serializers.ValidationError("Este correo ya fue verificado.")
+
+        self.user = user
+        return value
+
+    def save(self):
+        send_email_verification_code(self.user)
+        return self.user
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-        email = attrs.get("email")
+        email = attrs.get("email").lower().strip()
         password = attrs.get("password")
 
-        user = authenticate(username=email, password=password)
+        user = User.objects.filter(email=email).first()
 
-        if not user:
+        if not user or not user.check_password(password):
             raise serializers.ValidationError({
                 "detail": "Correo o contraseña incorrectos."
             })
 
         if not user.is_active:
+            if not user.email_verified:
+                raise serializers.ValidationError({
+                    "detail": "Debes verificar tu correo electrónico antes de iniciar sesión."
+                })
+
             raise serializers.ValidationError({
                 "detail": "Este usuario está desactivado."
             })
