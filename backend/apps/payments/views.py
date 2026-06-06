@@ -563,7 +563,7 @@ def registrar_gasto(request):
     if user.role not in ['super_admin', 'admin', 'board', 'accountant']:
         return JsonResponse({'error': 'No autorizado'}, status=403)
 
-    body = _parse_body(request) or {}
+    body = request.data
     
     categoria = body.get('categoria', 'OTROS').upper()
     valid_choices = [choice[0] for choice in Expense.CATEGORIAS]
@@ -624,7 +624,7 @@ def editar_gasto(request, pk):
     except Expense.DoesNotExist:
         return JsonResponse({'error': 'El gasto no existe'}, status=404)
         
-    body = _parse_body(request) or {}
+    body = request.data
     
     if 'categoria' in body:
         categoria = body.get('categoria').upper()
@@ -766,9 +766,7 @@ def registrar_pago(request):
     if user.role == 'security':
         return JsonResponse({'error': 'No autorizado'}, status=403)
 
-    body = _parse_body(request)
-    if body is None:
-        return JsonResponse({'error': 'JSON inválido'}, status=400)
+    body = request.data
 
     raw_amount = body.get('amount') if body.get('amount') is not None else body.get('monto')
     if raw_amount is None:
