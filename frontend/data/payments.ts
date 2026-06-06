@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 
 import { api } from '../services/api';
 import type { Payment, PaymentMethod, PaymentType } from './types';
@@ -38,6 +39,13 @@ function mapPayment(row: PaymentApiRow): Payment {
     type: (row.type as PaymentType) ?? 'Mensualidad',
     status: row.status === 'completado' ? 'completado' : 'pendiente',
     method: (row.method as PaymentMethod) ?? 'Transferencia',
+    document_id: row.document_id,
+    building: row.building,
+    floor: row.floor,
+    unit_number: row.unit_number,
+    month: row.month,
+    due_date: row.due_date,
+    payment_date: row.payment_date,
   };
 }
 
@@ -98,9 +106,11 @@ export function usePaymentsData() {
     }
   }, []);
 
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  useFocusEffect(
+    useCallback(() => {
+      reload();
+    }, [reload])
+  );
 
   const registerPayment = useCallback(
     async (payload: {

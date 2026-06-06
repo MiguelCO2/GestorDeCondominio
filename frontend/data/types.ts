@@ -46,6 +46,13 @@ export interface Payment {
   type: PaymentType;
   status: PaymentStatus;
   method: PaymentMethod;
+  document_id?: string;
+  building?: string;
+  floor?: string;
+  unit_number?: string;
+  month?: string;
+  due_date?: string;
+  payment_date?: string;
 }
 
 export type DebtorSeverity = 'baja' | 'media' | 'alta' | 'critica';

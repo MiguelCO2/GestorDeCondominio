@@ -91,15 +91,72 @@ def _status_front(estado):
 
 
 def payment_to_dict(pago, include_legacy=True):
+    document_id = ''
+    building = ''
+    floor = ''
+    unit_number = ''
+    
+    if pago.residente:
+        document_id = pago.residente.document_id or ''
+        
+        user = pago.residente.user
+        prop = None
+        if user:
+            prop = user.owned_properties.first() or user.rented_properties.first()
+            
+        if not prop and pago.residente.property_id:
+            prop = pago.residente.property
+            
+        if prop:
+            building = prop.building or ''
+            floor = prop.floor or ''
+            unit_number = prop.unit_number or ''
+            
+    if not building and pago.unidad:
+        # Intentar extraer "Torre X" de pago.unidad si existe
+        u_str = pago.unidad
+        if "Torre" in u_str:
+            parts = u_str.split("Apto", 1)
+            if len(parts) == 2:
+                building = parts[0].strip()
+                unit_number = "Apto" + parts[1]
+            else:
+                unit_number = u_str
+        else:
+            unit_number = u_str
+
+    # Intentar extraer el mes de la descripción (ej: "Mes 6")
+    month_name = MESES_ES[pago.fecha_creacion.month - 1]
+    
+    import re
+    match = re.search(r'Mes (\d+)', pago.descripcion or '')
+    if match:
+        try:
+            m_idx = int(match.group(1))
+            if 1 <= m_idx <= 12:
+                month_name = MESES_ES[m_idx - 1]
+        except ValueError:
+            pass
+
+    due_date = f"09 {month_name} {pago.fecha_creacion.year}"
+    payment_date = _format_date_short(pago.fecha_creacion) if pago.estado == 'COBRADO' else ''
+
     data = {
         'id': pago.id,
         'resident': _resident_display(pago),
+        'document_id': document_id,
+        'building': building,
+        'floor': floor,
+        'unit_number': unit_number,
         'unit': _unit_display(pago),
         'amount': float(pago.monto),
         'date': _format_date_short(pago.fecha_creacion),
         'type': TIPO_BACK_TO_FRONT.get(pago.tipo, pago.tipo),
         'status': _status_front(pago.estado),
         'method': METODO_BACK_TO_FRONT.get(pago.metodo_pago, pago.metodo_pago),
+        'month': month_name,
+        'due_date': due_date,
+        'payment_date': payment_date,
     }
     if include_legacy:
         data.update({

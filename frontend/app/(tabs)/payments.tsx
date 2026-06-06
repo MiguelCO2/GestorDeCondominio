@@ -7,6 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 
 import { PaymentModal } from '../../components/modals/PaymentModal';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import { generatePdfHtml } from '../../utils/pdfGenerator';
 
 import { AppBar } from '../../components/ui/AppBar';
 
@@ -80,10 +83,19 @@ export default function PaymentsScreen() {
 
   const handleNewPayment = () => setShowNewPayment(true);
 
-  const handleExport = () => {
-
-    // TODO: abrir modal de exportar reportes
-
+  const handleExport = async () => {
+    try {
+      const html = generatePdfHtml(filtered, summary);
+      const { uri } = await Print.printToFileAsync({ html });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri);
+      } else {
+        Alert.alert('Info', 'El PDF fue generado pero no se puede compartir en este dispositivo.');
+      }
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Error', 'No se pudo generar el PDF.');
+    }
   };
 
 
