@@ -20,6 +20,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppBar } from '../components/ui/AppBar';
+import { useAuth } from '../hooks/useAuth';
 import { Btn } from '../components/ui/Btn';
 import { FAB } from '../components/ui/FAB';
 import { IconBtn } from '../components/ui/IconBtn';
@@ -79,6 +80,8 @@ function getCategoryTone(cat: ExpenseCategory) {
 
 export default function ExpensesScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+  const isResident = user?.role === 'resident';
 
   // Filters
   const [selectedTower, setSelectedTower] = useState('TODOS');
@@ -411,8 +414,8 @@ export default function ExpensesScreen() {
               return (
                 <Pressable
                   key={exp.id}
-                  onPress={() => handleEditExpense(exp)}
-                  style={({ pressed }) => [styles.expenseRow, pressed && { opacity: 0.8 }]}
+                  onPress={() => !isResident && handleEditExpense(exp)}
+                  style={({ pressed }) => [styles.expenseRow, pressed && !isResident && { opacity: 0.8 }]}
                 >
                   <View style={[styles.categoryIcon, { backgroundColor: t.bgStrong }]}>
                     <Ionicons
@@ -461,7 +464,7 @@ export default function ExpensesScreen() {
       </ScrollView>
 
       {/* Botón flotante para registrar gasto */}
-      <FAB onPress={handleNewExpense} />
+      {!isResident && <FAB onPress={handleNewExpense} />}
 
       {/* Modal para Crear/Editar Gasto */}
       <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>

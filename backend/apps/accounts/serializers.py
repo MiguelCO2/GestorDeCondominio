@@ -52,6 +52,9 @@ def send_email_change_code(user, new_email):
     )
 
 class UserSerializer(serializers.ModelSerializer):
+    is_linked = serializers.SerializerMethodField()
+    linked_property = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = (
@@ -63,7 +66,31 @@ class UserSerializer(serializers.ModelSerializer):
             "role",
             "is_active",
             "profile_image",
+            "is_linked",
+            "linked_property",
         )
+
+    def get_is_linked(self, obj):
+        if obj.role in ["super_admin", "admin", "board", "security", "accountant"]:
+            return True
+        from apps.properties.models import Property
+        from django.db.models import Q
+        profile = getattr(obj, "resident_profile", None)
+        if profile and profile.property_id:
+            return True
+        return Property.objects.filter(Q(owner=obj) | Q(tenant=obj)).exists()
+
+    def get_linked_property(self, obj):
+        from apps.properties.models import Property
+        from django.db.models import Q
+        profile = getattr(obj, "resident_profile", None)
+        if profile and profile.property:
+            prop = profile.property
+            return f"{prop.building} · {prop.unit_number}"
+        prop = Property.objects.filter(Q(owner=obj) | Q(tenant=obj)).first()
+        if prop:
+            return f"{prop.building} · {prop.unit_number}"
+        return None
 
 class RegisterSerializer(serializers.ModelSerializer):
     
@@ -301,6 +328,21 @@ class LoginSerializer(serializers.Serializer):
             })
 
         refresh = RefreshToken.for_user(user)
+        refresh.access_token['role'] = user.role
+        
+        # Determine is_linked
+        is_linked = False
+        if user.role in ["super_admin", "admin", "board", "security", "accountant"]:
+            is_linked = True
+        else:
+            from apps.properties.models import Property
+            from django.db.models import Q
+            profile = getattr(user, "resident_profile", None)
+            if profile and profile.property_id:
+                is_linked = True
+            else:
+                is_linked = Property.objects.filter(Q(owner=user) | Q(tenant=user)).exists()
+        refresh.access_token['is_linked'] = is_linked
 
         return {
             "access": str(refresh.access_token),

@@ -138,4 +138,5 @@ export interface FinanceKpis {
   overdueAmount: number;
   totalResidents?: number;
   occupiedUnits?: number;
+  pendiente?: number;
 }

@@ -1,18 +1,53 @@
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from apps.accounts.permissions import IsAdminOrCreator
 
 from .models import ResidentProfile
 from .serializers import ResidentProfileSerializer
 
 
 class ResidentProfileViewSet(viewsets.ModelViewSet):
-    queryset = ResidentProfile.objects.select_related(
-        "user",
-        "condominium",
-        "property",
-    ).all().order_by("-created_at")
     serializer_class = ResidentProfileSerializer
+
+    def get_permissions(self):
+        if self.action in ["create", "update", "partial_update", "destroy"]:
+            return [IsAuthenticated(), IsAdminOrCreator()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return ResidentProfile.objects.none()
+
+        if user.role in ["super_admin", "admin", "board", "accountant"]:
+            return ResidentProfile.objects.select_related(
+                "user",
+                "condominium",
+                "property",
+            ).all().order_by("-created_at")
+
+        if user.role == "resident":
+            from apps.properties.models import Property
+            from django.db.models import Q
+            
+            profile = getattr(user, "resident_profile", None)
+            prop = None
+            if profile and profile.property_id:
+                prop = profile.property
+            else:
+                prop = Property.objects.filter(Q(owner=user) | Q(tenant=user)).first()
+
+            if prop:
+                return ResidentProfile.objects.select_related(
+                    "user",
+                    "condominium",
+                    "property",
+                ).filter(property=prop).order_by("-created_at")
+            return ResidentProfile.objects.none()
+
+        return ResidentProfile.objects.none()
 
     def create(self, request, *args, **kwargs):
         payload = request.data.copy()
@@ -39,7 +74,11 @@ class ResidentProfileViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        profile = self.get_queryset().filter(user=request.user).first()
+        profile = ResidentProfile.objects.select_related(
+            "user",
+            "condominium",
+            "property",
+        ).filter(user=request.user).first()
         if not profile:
             return Response(
                 {"detail": "No existe perfil de residente para este usuario."},
@@ -48,3 +87,4 @@ class ResidentProfileViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(profile)
         return Response(serializer.data)
+

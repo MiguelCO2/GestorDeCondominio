@@ -5,13 +5,25 @@ from datetime import datetime, date
 from django.db.models import Sum, Q
 from django.utils import timezone
 from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 
 from apps.residents.models import ResidentProfile
 from apps.properties.models import Property
 
 from .models import Payment, Expense
+
+def _get_resident_prop_and_profile(user):
+    from apps.properties.models import Property
+    from django.db.models import Q
+    profile = getattr(user, "resident_profile", None)
+    prop = None
+    if profile and profile.property_id:
+        prop = profile.property
+    else:
+        prop = Property.objects.filter(Q(owner=user) | Q(tenant=user)).first()
+    return prop, profile
 
 MESES_ES = (
     'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
@@ -173,11 +185,32 @@ def payment_to_dict(pago, include_legacy=True):
     return data
 
 
-def _payments_queryset():
-    return Payment.objects.select_related(
+def _payments_queryset(user):
+    qs = Payment.objects.select_related(
         'residente__user',
         'residente__property',
     ).order_by('-fecha_creacion')
+    
+    if not user or not user.is_authenticated:
+        return Payment.objects.none()
+        
+    if user.role == 'security':
+        return Payment.objects.none()
+        
+    if user.role == 'resident':
+        prop, _ = _get_resident_prop_and_profile(user)
+        if not prop:
+            return Payment.objects.none()
+        
+        unit_str = f"{prop.building} · {prop.unit_number}"
+        return qs.filter(
+            Q(residente__property=prop) |
+            Q(residente__user=user) |
+            Q(unidad=unit_str) |
+            Q(unidad=prop.unit_number)
+        )
+        
+    return qs
 
 
 def _pagos_response(queryset):
@@ -186,101 +219,221 @@ def _pagos_response(queryset):
     })
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def dashboard_pagos(request):
-    cobrado = Payment.objects.filter(estado='COBRADO').aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
-    pendiente = Payment.objects.filter(estado='PENDIENTE').aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
-    morosos = Payment.objects.filter(estado='MOROSO').aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+    user = request.user
+    if user.role == 'security':
+        return JsonResponse({'error': 'No autorizado'}, status=403)
 
-    # Consolidated stats for current month and year
-    today = timezone.now().date()
-    income_month = Payment.objects.filter(
-        estado='COBRADO',
-        fecha_creacion__month=today.month,
-        fecha_creacion__year=today.year
-    ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+    if user.role == 'resident':
+        prop, profile = _get_resident_prop_and_profile(user)
+        if not prop:
+            return JsonResponse({
+                'total_cobrado': 0.0,
+                'total_pendiente': 0.0,
+                'total_morosos': 0.0,
+                'cobrado': 0.0,
+                'pendiente': 0.0,
+                'moroso': 0.0,
+                'balance': 0.0,
+                'incomeMonth': 0.0,
+                'expenseMonth': 0.0,
+                'overdue': 0,
+                'overdueAmount': 0.0,
+                'collectionRate': 100,
+                'incomeTrend': [0.0]*6,
+                'expenseTrend': [0.0]*6,
+                'totalResidents': 0,
+                'occupiedUnits': 0,
+            })
+        
+        unit_str = f"{prop.building} · {prop.unit_number}"
+        
+        def _filter_p(qs):
+            return qs.filter(
+                Q(residente__property=prop) |
+                Q(residente__user=user) |
+                Q(unidad=unit_str) |
+                Q(unidad=prop.unit_number)
+            )
 
-    expense_month = Expense.objects.filter(
-        fecha__month=today.month,
-        fecha__year=today.year
-    ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+        cobrado = _filter_p(Payment.objects.filter(estado='COBRADO')).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+        pendiente = _filter_p(Payment.objects.filter(estado='PENDIENTE')).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+        morosos = _filter_p(Payment.objects.filter(estado='MOROSO')).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
 
-    expense_all_time = Expense.objects.aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
-    balance = cobrado - expense_all_time
-
-    # Collection rate calculation: cobrado / (cobrado + pendiente + morosos) for the current month
-    cobrado_m = Payment.objects.filter(estado='COBRADO', fecha_creacion__month=today.month, fecha_creacion__year=today.year).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
-    pendiente_m = Payment.objects.filter(estado='PENDIENTE', fecha_creacion__month=today.month, fecha_creacion__year=today.year).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
-    morosos_m = Payment.objects.filter(estado='MOROSO', fecha_creacion__month=today.month, fecha_creacion__year=today.year).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
-    
-    total_m = cobrado_m + pendiente_m + morosos_m
-    collection_rate = int((cobrado_m / total_m) * 100) if total_m > 0 else 100
-
-    # Count and amount of unpaid/overdue residents (all time in state MOROSO)
-    overdue_qs = Payment.objects.filter(estado='MOROSO')
-    overdue_count = overdue_qs.values('residente', 'residente_nombre').distinct().count()
-    overdue_amount = overdue_qs.aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
-
-    # Trends of the last 6 months
-    income_trend = []
-    expense_trend = []
-    
-    months_list = []
-    curr_year = today.year
-    curr_month = today.month
-    for _ in range(6):
-        months_list.insert(0, (curr_year, curr_month))
-        curr_month -= 1
-        if curr_month == 0:
-            curr_month = 12
-            curr_year -= 1
-
-    for yr, mo in months_list:
-        inc_sum = Payment.objects.filter(
+        today = timezone.now().date()
+        income_month = _filter_p(Payment.objects.filter(
             estado='COBRADO',
-            fecha_creacion__year=yr,
-            fecha_creacion__month=mo
+            fecha_creacion__month=today.month,
+            fecha_creacion__year=today.year
+        )).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+
+        expense_month = Expense.objects.filter(
+            torre__iexact=prop.building,
+            fecha__month=today.month,
+            fecha__year=today.year
         ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
-        
-        exp_sum = Expense.objects.filter(
-            fecha__year=yr,
-            fecha__month=mo
+
+        expense_all_time = Expense.objects.filter(torre__iexact=prop.building).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+        balance = cobrado - expense_all_time
+
+        cobrado_m = _filter_p(Payment.objects.filter(estado='COBRADO', fecha_creacion__month=today.month, fecha_creacion__year=today.year)).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+        pendiente_m = _filter_p(Payment.objects.filter(estado='PENDIENTE', fecha_creacion__month=today.month, fecha_creacion__year=today.year)).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+        morosos_m = _filter_p(Payment.objects.filter(estado='MOROSO', fecha_creacion__month=today.month, fecha_creacion__year=today.year)).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+
+        total_m = cobrado_m + pendiente_m + morosos_m
+        collection_rate = int((cobrado_m / total_m) * 100) if total_m > 0 else 100
+
+        overdue_qs = _filter_p(Payment.objects.filter(estado='MOROSO'))
+        overdue_count = overdue_qs.values('residente', 'residente_nombre').distinct().count()
+        overdue_amount = overdue_qs.aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+
+        income_trend = []
+        expense_trend = []
+        months_list = []
+        curr_year = today.year
+        curr_month = today.month
+        for _ in range(6):
+            months_list.insert(0, (curr_year, curr_month))
+            curr_month -= 1
+            if curr_month == 0:
+                curr_month = 12
+                curr_year -= 1
+
+        for yr, mo in months_list:
+            inc_sum = _filter_p(Payment.objects.filter(
+                estado='COBRADO',
+                fecha_creacion__year=yr,
+                fecha_creacion__month=mo
+            )).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+            
+            exp_sum = Expense.objects.filter(
+                torre__iexact=prop.building,
+                fecha__year=yr,
+                fecha__month=mo
+            ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+            
+            income_trend.append(float(inc_sum))
+            expense_trend.append(float(exp_sum))
+
+        total_residents = ResidentProfile.objects.filter(property=prop, is_active=True).count()
+        occupied_units = Property.objects.filter(building=prop.building).filter(Q(owner__isnull=False) | Q(tenant__isnull=False)).count()
+
+        datos = {
+            'total_cobrado': float(cobrado),
+            'total_pendiente': float(pendiente),
+            'total_morosos': float(morosos),
+            'cobrado': float(cobrado),
+            'pendiente': float(pendiente),
+            'moroso': float(morosos),
+            'balance': float(balance),
+            'incomeMonth': float(income_month),
+            'expenseMonth': float(expense_month),
+            'overdue': overdue_count,
+            'overdueAmount': float(overdue_amount),
+            'collectionRate': collection_rate,
+            'incomeTrend': income_trend,
+            'expenseTrend': expense_trend,
+            'totalResidents': total_residents,
+            'occupiedUnits': occupied_units,
+        }
+        return JsonResponse(datos)
+
+    else:
+        cobrado = Payment.objects.filter(estado='COBRADO').aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+        pendiente = Payment.objects.filter(estado='PENDIENTE').aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+        morosos = Payment.objects.filter(estado='MOROSO').aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+
+        today = timezone.now().date()
+        income_month = Payment.objects.filter(
+            estado='COBRADO',
+            fecha_creacion__month=today.month,
+            fecha_creacion__year=today.year
         ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+
+        expense_month = Expense.objects.filter(
+            fecha__month=today.month,
+            fecha__year=today.year
+        ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+
+        expense_all_time = Expense.objects.aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+        balance = cobrado - expense_all_time
+
+        cobrado_m = Payment.objects.filter(estado='COBRADO', fecha_creacion__month=today.month, fecha_creacion__year=today.year).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+        pendiente_m = Payment.objects.filter(estado='PENDIENTE', fecha_creacion__month=today.month, fecha_creacion__year=today.year).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+        morosos_m = Payment.objects.filter(estado='MOROSO', fecha_creacion__month=today.month, fecha_creacion__year=today.year).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
         
-        income_trend.append(float(inc_sum))
-        expense_trend.append(float(exp_sum))
+        total_m = cobrado_m + pendiente_m + morosos_m
+        collection_rate = int((cobrado_m / total_m) * 100) if total_m > 0 else 100
 
-    total_residents = ResidentProfile.objects.filter(is_active=True).count()
-    occupied_units = Property.objects.filter(Q(owner__isnull=False) | Q(tenant__isnull=False)).count()
+        overdue_qs = Payment.objects.filter(estado='MOROSO')
+        overdue_count = overdue_qs.values('residente', 'residente_nombre').distinct().count()
+        overdue_amount = overdue_qs.aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
 
-    datos = {
-        'total_cobrado': float(cobrado),
-        'total_pendiente': float(pendiente),
-        'total_morosos': float(morosos),
-        'cobrado': float(cobrado),
-        'pendiente': float(pendiente),
-        'moroso': float(morosos),
-        'balance': float(balance),
-        'incomeMonth': float(income_month),
-        'expenseMonth': float(expense_month),
-        'overdue': overdue_count,
-        'overdueAmount': float(overdue_amount),
-        'collectionRate': collection_rate,
-        'incomeTrend': income_trend,
-        'expenseTrend': expense_trend,
-        'totalResidents': total_residents,
-        'occupiedUnits': occupied_units,
-    }
-    return JsonResponse(datos)
+        income_trend = []
+        expense_trend = []
+        months_list = []
+        curr_year = today.year
+        curr_month = today.month
+        for _ in range(6):
+            months_list.insert(0, (curr_year, curr_month))
+            curr_month -= 1
+            if curr_month == 0:
+                curr_month = 12
+                curr_year -= 1
+
+        for yr, mo in months_list:
+            inc_sum = Payment.objects.filter(
+                estado='COBRADO',
+                fecha_creacion__year=yr,
+                fecha_creacion__month=mo
+            ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+            
+            exp_sum = Expense.objects.filter(
+                fecha__year=yr,
+                fecha__month=mo
+            ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+            
+            income_trend.append(float(inc_sum))
+            expense_trend.append(float(exp_sum))
+
+        total_residents = ResidentProfile.objects.filter(is_active=True).count()
+        occupied_units = Property.objects.filter(Q(owner__isnull=False) | Q(tenant__isnull=False)).count()
+
+        datos = {
+            'total_cobrado': float(cobrado),
+            'total_pendiente': float(pendiente),
+            'total_morosos': float(morosos),
+            'cobrado': float(cobrado),
+            'pendiente': float(pendiente),
+            'moroso': float(morosos),
+            'balance': float(balance),
+            'incomeMonth': float(income_month),
+            'expenseMonth': float(expense_month),
+            'overdue': overdue_count,
+            'overdueAmount': float(overdue_amount),
+            'collectionRate': collection_rate,
+            'incomeTrend': income_trend,
+            'expenseTrend': expense_trend,
+            'totalResidents': total_residents,
+            'occupiedUnits': occupied_units,
+        }
+        return JsonResponse(datos)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def lista_morosos(request):
-    # Get all unpaid payments in state MOROSO
+    user = request.user
+    if user.role not in ['super_admin', 'admin', 'board', 'accountant']:
+        return JsonResponse({'error': 'No autorizado'}, status=403)
+
     unpaid = Payment.objects.filter(estado='MOROSO').select_related(
         'residente__user',
         'residente__property'
     ).order_by('-fecha_creacion')
     
-    # Group by resident name or resident profile id
     groups = {}
     for p in unpaid:
         key = p.residente_id if p.residente_id else p.residente_nombre
@@ -294,7 +447,6 @@ def lista_morosos(request):
             }
         groups[key]['payments'].append(p)
         
-    # Now build the Debtor objects
     debtors_list = []
     import hashlib
     for idx, (key, info) in enumerate(groups.items(), start=1):
@@ -302,7 +454,6 @@ def lista_morosos(request):
         total_amount = sum(float(p.monto) for p in payments)
         months_count = len(payments)
         
-        # Find the last payment of this resident that is COBRADO
         last_payment_date_str = 'Sin pagos'
         res_id = key if isinstance(key, int) else None
         res_name = key if isinstance(key, str) else None
@@ -316,7 +467,6 @@ def lista_morosos(request):
         if last_cobrado:
             last_payment_date_str = _format_date_short(last_cobrado.fecha_creacion)
             
-        # Severity based on months count
         if months_count >= 4:
             severity = 'critica'
         elif months_count >= 3:
@@ -326,12 +476,10 @@ def lista_morosos(request):
         else:
             severity = 'baja'
             
-        # Initials for avatar
         name = info['name']
         parts = [p for p in name.split() if p]
         avatar = ''.join(p[0].upper() for p in parts[:2]) if parts else 'R'
         
-        # Color hash based on name
         h = int(hashlib.md5(name.encode('utf-8')).hexdigest(), 16)
         colors_palette = ['#ea580c', '#7c3aed', '#b91c1c', '#0d9488', '#2563eb', '#16a34a']
         color = colors_palette[h % len(colors_palette)]
@@ -351,23 +499,22 @@ def lista_morosos(request):
     return JsonResponse({'debtors': debtors_list})
 
 
-def expense_to_dict(gasto):
-    return {
-        'id': gasto.id,
-        'categoria': gasto.categoria,
-        'categoria_display': gasto.get_categoria_display(),
-        'descripcion': gasto.descripcion,
-        'monto': float(gasto.monto),
-        'fecha': gasto.fecha.strftime('%Y-%m-%d') if gasto.fecha else '',
-        'torre': gasto.torre,
-        'comprobante': gasto.comprobante.url if gasto.comprobante else None,
-        'fecha_creacion': gasto.fecha_creacion.isoformat() if gasto.fecha_creacion else '',
-    }
-
-
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def lista_gastos(request):
+    user = request.user
+    if user.role == 'security':
+        return JsonResponse({'error': 'No autorizado'}, status=403)
+
     qs = Expense.objects.all().order_by('-fecha', '-fecha_creacion')
     
+    if user.role == 'resident':
+        prop, _ = _get_resident_prop_and_profile(user)
+        if prop:
+            qs = qs.filter(torre__iexact=prop.building)
+        else:
+            qs = qs.none()
+
     torre = request.GET.get('torre')
     if torre and torre.upper() != 'TODOS':
         qs = qs.filter(torre__iexact=torre)
@@ -395,9 +542,13 @@ def lista_gastos(request):
     })
 
 
-@csrf_exempt
-@require_http_methods(['POST'])
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def registrar_gasto(request):
+    user = request.user
+    if user.role not in ['super_admin', 'admin', 'board', 'accountant']:
+        return JsonResponse({'error': 'No autorizado'}, status=403)
+
     body = _parse_body(request) or {}
     
     categoria = body.get('categoria', 'OTROS').upper()
@@ -447,9 +598,13 @@ def registrar_gasto(request):
     return JsonResponse({'gasto': expense_to_dict(gasto)}, status=201)
 
 
-@csrf_exempt
-@require_http_methods(['POST', 'PUT'])
+@api_view(['POST', 'PUT'])
+@permission_classes([IsAuthenticated])
 def editar_gasto(request, pk):
+    user = request.user
+    if user.role not in ['super_admin', 'admin', 'board', 'accountant']:
+        return JsonResponse({'error': 'No autorizado'}, status=403)
+
     try:
         gasto = Expense.objects.get(pk=pk)
     except Expense.DoesNotExist:
@@ -498,7 +653,13 @@ def editar_gasto(request, pk):
     return JsonResponse({'gasto': expense_to_dict(gasto)})
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def resumen_torre(request):
+    user = request.user
+    if user.role not in ['super_admin', 'admin', 'board', 'accountant']:
+        return JsonResponse({'error': 'No autorizado'}, status=403)
+
     torre = request.GET.get('torre')
     if not torre:
         return JsonResponse({'error': 'La torre es obligatoria'}, status=400)
@@ -514,7 +675,6 @@ def resumen_torre(request):
         base_payments = Payment.objects.all()
         base_expenses = Expense.objects.all()
     else:
-        # Resolve properties associated with this building to find their users
         property_users = Property.objects.filter(building__iexact=torre).values_list('owner_id', 'tenant_id')
         user_ids = set()
         for owner_id, tenant_id in property_users:
@@ -537,7 +697,6 @@ def resumen_torre(request):
         fecha__year=ano
     ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
     
-    # Available balance (all-time total income - all-time total expenses for this tower)
     ingresos_totales = base_payments.filter(estado='COBRADO').aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
     gastos_totales = base_expenses.aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
     
@@ -553,65 +712,39 @@ def resumen_torre(request):
     })
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def lista_todos_pagos(request):
-    return _pagos_response(_payments_queryset())
+    return _pagos_response(_payments_queryset(request.user))
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def lista_mensualidades(request):
-    return _pagos_response(_payments_queryset().filter(tipo='MENSUALIDAD'))
+    return _pagos_response(_payments_queryset(request.user).filter(tipo='MENSUALIDAD'))
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def lista_abonos(request):
-    return _pagos_response(_payments_queryset().filter(tipo='ABONO'))
+    return _pagos_response(_payments_queryset(request.user).filter(tipo='ABONO'))
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def lista_pendientes(request):
     return _pagos_response(
-        _payments_queryset().filter(estado__in=['PENDIENTE', 'MOROSO'])
+        _payments_queryset(request.user).filter(estado__in=['PENDIENTE', 'MOROSO'])
     )
 
 
-def _parse_body(request):
-    if request.content_type and 'application/json' in request.content_type:
-        try:
-            return json.loads(request.body.decode('utf-8') or '{}')
-        except json.JSONDecodeError:
-            return None
-    return request.POST.dict() if request.POST else {}
-
-
-def _resolve_residente(body):
-    residente_id = body.get('residente_id') or body.get('resident_id')
-    if residente_id:
-        try:
-            return ResidentProfile.objects.select_related('user', 'property').get(
-                pk=int(residente_id)
-            )
-        except (ResidentProfile.DoesNotExist, TypeError, ValueError):
-            return None
-
-    nombre = (body.get('resident') or body.get('residente') or body.get('residente_nombre') or '').strip()
-    if not nombre:
-        return None
-
-    profile = (
-        ResidentProfile.objects.select_related('user', 'property')
-        .filter(user__full_name__iexact=nombre)
-        .first()
-    )
-    if profile:
-        return profile
-
-    return (
-        ResidentProfile.objects.select_related('user', 'property')
-        .filter(user__email__iexact=nombre)
-        .first()
-    )
-
-
-@csrf_exempt
-@require_http_methods(['POST'])
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def registrar_pago(request):
+    user = request.user
+    if user.role == 'security':
+        return JsonResponse({'error': 'No autorizado'}, status=403)
+
     body = _parse_body(request)
     if body is None:
         return JsonResponse({'error': 'JSON inválido'}, status=400)
@@ -638,17 +771,26 @@ def registrar_pago(request):
     if not metodo:
         return JsonResponse({'error': 'Método de pago inválido'}, status=400)
 
-    residente_nombre = (body.get('resident') or body.get('residente') or body.get('residente_nombre') or '').strip()
-    if not residente_nombre:
-        return JsonResponse({'error': 'El residente es obligatorio'}, status=400)
+    if user.role == 'resident':
+        prop, profile = _get_resident_prop_and_profile(user)
+        if not prop:
+            return JsonResponse({'error': 'No tienes un apartamento asociado para registrar pagos.'}, status=403)
+        if not profile:
+            return JsonResponse({'error': 'No existe perfil de residente para tu usuario.'}, status=403)
+        residente_nombre = user.full_name or user.email or user.username
+        unidad = f"{prop.building} · {prop.unit_number}"
+    else:
+        residente_nombre = (body.get('resident') or body.get('residente') or body.get('residente_nombre') or '').strip()
+        if not residente_nombre:
+            return JsonResponse({'error': 'El residente es obligatorio'}, status=400)
 
-    profile = _resolve_residente(body)
-    unidad = (body.get('unit') or body.get('unidad') or '').strip()
-    if not unidad and profile:
-        prop = get_resident_property(profile)
-        if prop:
-            parts = [p for p in (prop.building, prop.unit_number) if p]
-            unidad = ' · '.join(parts) if parts else prop.unit_number
+        profile = _resolve_residente(body)
+        unidad = (body.get('unit') or body.get('unidad') or '').strip()
+        if not unidad and profile:
+            prop = get_resident_property(profile)
+            if prop:
+                parts = [p for p in (prop.building, prop.unit_number) if p]
+                unidad = ' · '.join(parts) if parts else prop.unit_number
 
     raw_estado = body.get('estado') or body.get('status')
     if raw_estado in ('completado', 'COBRADO', 'cobrado'):
@@ -658,7 +800,10 @@ def registrar_pago(request):
     elif raw_estado in ('pendiente', 'PENDIENTE'):
         estado = 'PENDIENTE'
     else:
-        estado = 'COBRADO'
+        if user.role == 'resident':
+            estado = 'PENDIENTE'
+        else:
+            estado = 'COBRADO'
 
     descripcion = (body.get('descripcion') or body.get('description') or '').strip()
     if not descripcion:

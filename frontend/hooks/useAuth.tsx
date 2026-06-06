@@ -14,6 +14,8 @@ interface User {
   profile_image?: string | null;
   name: string;
   initials: string;
+  is_linked: boolean;
+  linked_property?: string | null;
 }
 
 interface AuthCtx {
@@ -51,6 +53,8 @@ type LoginResponse = {
     role: string;
     is_active: boolean;
     profile_image?: string | null;
+    is_linked?: boolean;
+    linked_property?: string | null;
   };
 };
 
@@ -97,6 +101,8 @@ function normalizeUser(user: LoginResponse['user']): User {
 
   return {
     ...user,
+    is_linked: user.is_linked ?? false,
+    linked_property: user.linked_property ?? null,
     name,
     initials: getInitials(name, user.email),
   };
@@ -109,8 +115,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 600);
-    return () => clearTimeout(t);
+    const restoreSession = async () => {
+      try {
+        const session = await getSession();
+        if (session) {
+          setAccessToken(session.access);
+          setRefreshToken(session.refresh);
+          setUser(session.user);
+          api.defaults.headers.common.Authorization = `Bearer ${session.access}`;
+        }
+      } catch (err) {
+        console.error('Error restoring session:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    restoreSession();
   }, []);
 
   const signIn = async (email: string, password: string) => {

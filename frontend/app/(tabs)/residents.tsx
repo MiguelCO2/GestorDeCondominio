@@ -30,6 +30,7 @@ import {
 } from '../../constants/theme';
 import type { Resident, ResidentStatus } from '../../data/types';
 import { api } from '../../services/api';
+import { useAuth } from '../../hooks/useAuth';
 
 type Filter = 'todos' | 'aldia' | 'moroso' | 'pendiente';
 
@@ -61,6 +62,7 @@ function mapPropertyToResident(prop: any): Resident {
 }
 
 export default function ResidentsScreen() {
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('todos');
   const [towerFilter, setTowerFilter] = useState<string | null>(null);
@@ -71,6 +73,9 @@ export default function ResidentsScreen() {
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
   const [loading, setLoading] = useState(true);
+
+  const isUnlinkedResident = user?.role === 'resident' && !user?.is_linked;
+  const isAdmin = user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'board';
 
   const fetchResidents = useCallback(async () => {
     setLoading(true);
@@ -87,8 +92,12 @@ export default function ResidentsScreen() {
   }, []);
 
   useEffect(() => {
-    fetchResidents();
-  }, [fetchResidents]);
+    if (user && !(user.role === 'resident' && !user.is_linked)) {
+      fetchResidents();
+    } else {
+      setLoading(false);
+    }
+  }, [user, fetchResidents]);
 
   const filtered = residents.filter((r) => {
     if (filter === 'aldia' && r.status !== 'al-dia') return false;
@@ -102,11 +111,13 @@ export default function ResidentsScreen() {
   });
 
   const handleNew = () => {
+    if (!isAdmin) return;
     setModalMode('add');
     setShowModal(true);
   };
   
   const handleEdit = () => {
+    if (!isAdmin) return;
     setModalMode('edit');
     setShowModal(true);
   };
@@ -160,99 +171,111 @@ export default function ResidentsScreen() {
       >
         <AppBar
           title="Residentes"
-          subtitle={`${residents.length} activos`}
+          subtitle={!isUnlinkedResident ? `${residents.length} activos` : undefined}
           large
         />
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.screen }}>
-          <View style={{ flex: 1 }}>
-            <SearchField
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Buscar por nombre…"
-            />
+        {isUnlinkedResident ? (
+          <View style={styles.blockedCard}>
+            <Ionicons name="lock-closed" size={36} color="#dc2626" style={{ marginBottom: 12 }} />
+            <Text style={styles.blockedTitle}>Acceso bloqueado</Text>
+            <Text style={styles.blockedText}>
+              No puedes ver la lista de residentes porque tu cuenta no está vinculada.
+            </Text>
           </View>
-          <Pressable 
-            onPress={() => setShowTowers(!showTowers)}
-            style={[styles.filterBtn, showTowers && styles.filterBtnActive]}
-          >
-            <Ionicons name="options-outline" size={20} color={showTowers ? '#fff' : colors.text} />
-            <Text style={[styles.filterBtnText, showTowers && styles.filterBtnTextActive]}>Filtros</Text>
-          </Pressable>
-        </View>
-
-        {showTowers && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.towersScroll}>
-            <Pressable 
-              onPress={() => setTowerFilter(null)}
-              style={[styles.towerPill, !towerFilter && styles.towerPillActive]}
-            >
-              <Text style={[styles.towerPillText, !towerFilter && styles.towerPillTextActive]}>Todas las Torres</Text>
-            </Pressable>
-            {TOWERS.map(t => (
+        ) : (
+          <>
+            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.screen }}>
+              <View style={{ flex: 1 }}>
+                <SearchField
+                  value={search}
+                  onChangeText={setSearch}
+                  placeholder="Buscar por nombre…"
+                />
+              </View>
               <Pressable 
-                key={t}
-                onPress={() => setTowerFilter(t)}
-                style={[styles.towerPill, towerFilter === t && styles.towerPillActive]}
+                onPress={() => setShowTowers(!showTowers)}
+                style={[styles.filterBtn, showTowers && styles.filterBtnActive]}
               >
-                <Text style={[styles.towerPillText, towerFilter === t && styles.towerPillTextActive]}>{t}</Text>
+                <Ionicons name="options-outline" size={20} color={showTowers ? '#fff' : colors.text} />
+                <Text style={[styles.filterBtnText, showTowers && styles.filterBtnTextActive]}>Filtros</Text>
               </Pressable>
-            ))}
-          </ScrollView>
-        )}
+            </View>
 
-        <View style={styles.segmentWrap}>
-          <Segmented<Filter>
-            value={filter}
-            onChange={setFilter}
-            options={[
-              { value: 'todos', label: 'Todos' },
-              { value: 'aldia', label: 'Al día' },
-              { value: 'moroso', label: 'Morosos' },
-              { value: 'pendiente', label: 'Pendiente' },
-            ]}
-          />
-        </View>
+            {showTowers && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.towersScroll}>
+                <Pressable 
+                  onPress={() => setTowerFilter(null)}
+                  style={[styles.towerPill, !towerFilter && styles.towerPillActive]}
+                >
+                  <Text style={[styles.towerPillText, !towerFilter && styles.towerPillTextActive]}>Todas las Torres</Text>
+                </Pressable>
+                {TOWERS.map(t => (
+                  <Pressable 
+                    key={t}
+                    onPress={() => setTowerFilter(t)}
+                    style={[styles.towerPill, towerFilter === t && styles.towerPillActive]}
+                  >
+                    <Text style={[styles.towerPillText, towerFilter === t && styles.towerPillTextActive]}>{t}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
 
-        <View style={styles.list}>
-          {loading ? (
-            <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
-          ) : filtered.length === 0 ? (
-            <Text style={styles.empty}>Sin resultados</Text>
-          ) : (
-            filtered.map((r) => (
-              <Pressable
-                key={r.id}
-                onPress={() => setSelected(r)}
-                style={({ pressed }) => [
-                  styles.card,
-                  pressed && { opacity: 0.85 },
+            <View style={styles.segmentWrap}>
+              <Segmented<Filter>
+                value={filter}
+                onChange={setFilter}
+                options={[
+                  { value: 'todos', label: 'Todos' },
+                  { value: 'aldia', label: 'Al día' },
+                  { value: 'moroso', label: 'Morosos' },
+                  { value: 'pendiente', label: 'Pendiente' },
                 ]}
-              >
-                <Avatar text={r.avatar} color={r.color} size={44} />
-                <View style={styles.cardMid}>
-                  <Text style={styles.cardName} numberOfLines={1}>
-                    {r.name}
-                  </Text>
-                  <View style={styles.cardUnit}>
-                    <Ionicons
-                      name="business"
-                      size={12}
-                      color={colors.textMuted}
-                    />
-                    <Text style={styles.cardUnitText} numberOfLines={1}>
-                      {r.unit}
-                    </Text>
-                  </View>
-                </View>
-                {statusPill(r.status)}
-              </Pressable>
-            ))
-          )}
-        </View>
+              />
+            </View>
+
+            <View style={styles.list}>
+              {loading ? (
+                <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
+              ) : filtered.length === 0 ? (
+                <Text style={styles.empty}>Sin resultados</Text>
+              ) : (
+                filtered.map((r) => (
+                  <Pressable
+                    key={r.id}
+                    onPress={() => setSelected(r)}
+                    style={({ pressed }) => [
+                      styles.card,
+                      pressed && { opacity: 0.85 },
+                    ]}
+                  >
+                    <Avatar text={r.avatar} color={r.color} size={44} />
+                    <View style={styles.cardMid}>
+                      <Text style={styles.cardName} numberOfLines={1}>
+                        {r.name}
+                      </Text>
+                      <View style={styles.cardUnit}>
+                        <Ionicons
+                          name="business"
+                          size={12}
+                          color={colors.textMuted}
+                        />
+                        <Text style={styles.cardUnitText} numberOfLines={1}>
+                          {r.unit}
+                        </Text>
+                      </View>
+                    </View>
+                    {statusPill(r.status)}
+                  </Pressable>
+                ))
+              )}
+            </View>
+          </>
+        )}
       </ScrollView>
 
-      <FAB onPress={handleNew} />
+      {!isUnlinkedResident && isAdmin && <FAB onPress={handleNew} />}
 
       <Modal
         visible={selected !== null && !showModal}
@@ -310,23 +333,25 @@ export default function ResidentsScreen() {
                   />
                 )}
 
-                <View style={styles.footer}>
-                  <Btn
-                    variant="subtleDanger"
-                    icon="trash"
-                    onPress={handleDelete}
-                  >
-                    Eliminar
-                  </Btn>
-                  <Btn
-                    variant="primary"
-                    full
-                    icon="create"
-                    onPress={handleEdit}
-                  >
-                    Editar
-                  </Btn>
-                </View>
+                {isAdmin && (
+                  <View style={styles.footer}>
+                    <Btn
+                      variant="subtleDanger"
+                      icon="trash"
+                      onPress={handleDelete}
+                    >
+                      Eliminar
+                    </Btn>
+                    <Btn
+                      variant="primary"
+                      full
+                      icon="create"
+                      onPress={handleEdit}
+                    >
+                      Editar
+                    </Btn>
+                  </View>
+                )}
               </>
             )}
           </View>
@@ -557,4 +582,27 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 18,
   },
+  blockedCard: {
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fca5a5',
+    borderRadius: radius.xl,
+    padding: 24,
+    marginHorizontal: spacing.screen,
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  blockedTitle: {
+    fontSize: 16,
+    fontWeight: fontWeight.bold,
+    color: '#991b1b',
+    marginBottom: 8,
+  },
+  blockedText: {
+    fontSize: 13,
+    color: '#b91c1c',
+    textAlign: 'center',
+    lineHeight: 19,
+  },
 });
+

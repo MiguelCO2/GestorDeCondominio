@@ -222,7 +222,7 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
     if (hasTenant) {
       if (!tenantName.trim() || !tenantEmail.trim()) {
         Alert.alert('Faltan datos', 'Nombre y correo del inquilino son obligatorios.');
-        setLocalSubmitting(false);
+        isSubmittingRef.current = false;
         return;
       }
       payload.tenant = {

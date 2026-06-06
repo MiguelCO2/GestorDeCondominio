@@ -41,6 +41,24 @@ function getGreeting() {
   return "Buenas noches";
 }
 
+function getDaysLeftToPay(): number {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth(); // 0-indexed
+  const day = now.getDate();
+
+  // El límite es el día 9 a las 23:59:59 del mes actual o del siguiente
+  let targetDate = new Date(year, month, 9, 23, 59, 59);
+  
+  if (day > 9) {
+    targetDate = new Date(year, month + 1, 9, 23, 59, 59);
+  }
+
+  const diffTime = targetDate.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return Math.max(0, diffDays);
+}
+
 const QUICK_ACTIONS = [
   { id: "expenses", icon: "receipt", label: "Verificar\ngastos", color: "#ea580c" },
   { id: "add_resident", icon: "person-add", label: "Añadir\nresidentes", color: "#0891b2" },
@@ -104,6 +122,9 @@ export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const firstName = user?.name?.split(" ")[0] ?? "Andrea";
+  const isUnlinkedResident = user?.role === 'resident' && !user?.is_linked;
+  const isResident = user?.role === 'resident';
+  
   const getProfileImageUrl = (path?: string | null) => {
     if (!path) return null;
   
@@ -136,6 +157,13 @@ export default function HomeScreen() {
   const [expenseTrend, setExpenseTrend] = useState<number[]>([7800, 8100, 7600, 8300, 8000, 8420]);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
 
+  let residentStatus: 'moroso' | 'pendiente' | 'al-dia' = 'al-dia';
+  if (financeKpis.overdueAmount > 0) {
+    residentStatus = 'moroso';
+  } else if ((financeKpis.pendiente ?? 0) > 0) {
+    residentStatus = 'pendiente';
+  }
+
   const fetchFinanceData = useCallback(async () => {
     try {
       const res = await api.get('/pagos/resumen/');
@@ -153,6 +181,7 @@ export default function HomeScreen() {
         overdueAmount: data.overdueAmount ?? 850.00,
         totalResidents: data.totalResidents ?? 152,
         occupiedUnits: data.occupiedUnits ?? 71,
+        pendiente: data.pendiente ?? 0.00,
       });
       if (data.incomeTrend && data.incomeTrend.length > 0) {
         setIncomeTrend(data.incomeTrend);
@@ -197,9 +226,11 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchLatestAnnouncement();
-      fetchFinanceData();
-      fetchRecentPayments();
-    }, [fetchLatestAnnouncement, fetchFinanceData, fetchRecentPayments]),
+      if (user && !(user.role === 'resident' && !user.is_linked)) {
+        fetchFinanceData();
+        fetchRecentPayments();
+      }
+    }, [user, fetchLatestAnnouncement, fetchFinanceData, fetchRecentPayments]),
   );
 
   const handleQuickAction = (id: string, label: string) => {
@@ -220,6 +251,20 @@ export default function HomeScreen() {
     }
     Alert.alert(label.replace("\n", " "));
   };
+
+  const allowedActions = QUICK_ACTIONS.filter(action => {
+    if (user?.role === 'resident') {
+      if (action.id === 'add_resident' || action.id === 'announce') {
+        return false;
+      }
+    }
+    if (user?.role === 'security') {
+      if (action.id === 'expenses' || action.id === 'add_resident' || action.id === 'export') {
+        return false;
+      }
+    }
+    return true;
+  });
 
   return (
     <SafeAreaView edges={["top"]} style={styles.safe}>
@@ -248,157 +293,246 @@ export default function HomeScreen() {
                 onPress={() => router.push('/profile')}
               >
                 {profileImageUri ? (
-                <Image source={{ uri: profileImageUri }} style={styles.profileImage} />
-            ) : (
-                <Text style={styles.profileInitials}>{user?.initials || 'U'}</Text>
-            )}
+                  <Image source={{ uri: profileImageUri }} style={styles.profileImage} />
+                ) : (
+                  <Text style={styles.profileInitials}>{user?.initials || 'U'}</Text>
+                )}
               </Pressable>
             </View>
           </View>
 
-          {/* Balance card oscuro */}
-          <View style={styles.balanceCard}>
-            <View style={styles.balanceGlow} />
-            <Text style={styles.balanceLabel}>Balance del condominio</Text>
-            <View style={styles.balanceRow}>
-              <Text style={styles.balanceCurrency}>Bs.</Text>
-              <Text style={styles.balanceAmount}>
-                {fmtNum(financeKpis.balance)}
+          {isUnlinkedResident && (
+            <View style={styles.unlinkedBanner}>
+              <Ionicons name="alert-circle" size={18} color="#dc2626" />
+              <Text style={styles.unlinkedBannerText}>
+                Cuenta sin vinculación. Pide al administrador asociarte al apartamento.
               </Text>
             </View>
-            <View style={styles.balanceFooter}>
-              <View style={styles.balanceCol}>
-                <Text style={styles.balanceColLabel}>INGRESOS</Text>
-                <View style={styles.balanceColRow}>
-                  <Text
-                    style={[
-                      styles.balanceColValue,
-                      { color: colors.incomeOnDark },
-                    ]}
-                  >
-                    +{fmtNum(financeKpis.incomeMonth)}
-                  </Text>
-                  <Sparkline
-                    data={incomeTrend}
-                    color={colors.incomeOnDark}
-                    width={44}
-                    height={18}
-                    fill={false}
-                  />
-                </View>
+          )}
+
+          {/* Balance card oscuro */}
+          {!isUnlinkedResident && (
+            <View style={styles.balanceCard}>
+              <View style={styles.balanceGlow} />
+              
+              {isResident ? (
+                // Vista de Residente: Informacion de pagos del apartamento
+                <>
+                  <Text style={styles.balanceLabel}>Estado de tu Apartamento</Text>
+                  
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                    <View>
+                      <Text style={styles.residentStatusLabel}>ESTADO DE CUENTA</Text>
+                      <View style={{ flexDirection: 'row', marginTop: 4 }}>
+                        {residentStatus === 'al-dia' && <Pill tone="success">Al día</Pill>}
+                        {residentStatus === 'moroso' && <Pill tone="danger">Moroso</Pill>}
+                        {residentStatus === 'pendiente' && <Pill tone="warning">Pendiente</Pill>}
+                      </View>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={styles.residentPropLabel}>PROPIEDAD</Text>
+                      <Text style={styles.residentPropValue}>{user?.linked_property || 'N/A'}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.balanceDividerHorizontal} />
+
+                  <View style={[styles.balanceFooter, { marginTop: 10 }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.balanceColLabel}>CUANTO DEBES (MOROSO)</Text>
+                      <Text style={[styles.balanceColValue, { color: '#f87171', fontSize: 18, marginTop: 4 }]}>
+                        Bs. {fmtNum(financeKpis.overdueAmount)}
+                      </Text>
+                    </View>
+                    <View style={styles.balanceDivider} />
+                    <View style={{ flex: 1, paddingLeft: 8 }}>
+                      <Text style={styles.balanceColLabel}>FALTA POR PAGAR</Text>
+                      <Text style={[styles.balanceColValue, { color: '#fbbf24', fontSize: 18, marginTop: 4 }]}>
+                        Bs. {fmtNum(financeKpis.pendiente ?? 0.00)}
+                      </Text>
+                    </View>
+                  </View>
+                </>
+              ) : (
+                // Vista de Administrador / Junta / Contador
+                <>
+                  <Text style={styles.balanceLabel}>Balance del condominio</Text>
+                  <View style={styles.balanceRow}>
+                    <Text style={styles.balanceCurrency}>Bs.</Text>
+                    <Text style={styles.balanceAmount}>
+                      {fmtNum(financeKpis.balance)}
+                    </Text>
+                  </View>
+                  <View style={styles.balanceFooter}>
+                    <View style={styles.balanceCol}>
+                      <Text style={styles.balanceColLabel}>INGRESOS</Text>
+                      <View style={styles.balanceColRow}>
+                        <Text
+                          style={[
+                            styles.balanceColValue,
+                            { color: colors.incomeOnDark },
+                          ]}
+                        >
+                          +{fmtNum(financeKpis.incomeMonth)}
+                        </Text>
+                        <Sparkline
+                          data={incomeTrend}
+                          color={colors.incomeOnDark}
+                          width={44}
+                          height={18}
+                          fill={false}
+                        />
+                      </View>
+                    </View>
+                    <View style={styles.balanceDivider} />
+                    <View style={styles.balanceCol}>
+                      <Text style={styles.balanceColLabel}>EGRESOS</Text>
+                      <View style={styles.balanceColRow}>
+                        <Text
+                          style={[
+                            styles.balanceColValue,
+                            { color: colors.expenseOnDark },
+                          ]}
+                        >
+                          −{fmtNum(financeKpis.expenseMonth)}
+                        </Text>
+                        <Sparkline
+                          data={expenseTrend}
+                          color={colors.expenseOnDark}
+                          width={44}
+                          height={18}
+                          fill={false}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                </>
+              )}
+            </View>
+          )}
+        </View>
+
+        {isUnlinkedResident ? (
+          <View style={styles.emptyStateCard}>
+            <Ionicons name="lock-closed" size={32} color="#64748b" style={{ marginBottom: 8 }} />
+            <Text style={styles.emptyStateTitle}>Acceso restringido</Text>
+            <Text style={styles.emptyStateText}>
+              No tienes un apartamento asociado. Una vez que el administrador vincule tu cuenta, podrás ver la información financiera, de cobranza y pagos de tu propiedad.
+            </Text>
+          </View>
+        ) : (
+          <>
+            {/* Grid 2x2 de KPIs */}
+            <View style={styles.kpiGrid}>
+              <View style={styles.kpiCol}>
+                <KPICard
+                  icon="people"
+                  label="Residentes"
+                  value={user?.role === 'resident' ? String(financeKpis.totalResidents ?? 0) : String(financeKpis.totalResidents ?? 152)}
+                  sub={user?.role === 'resident' ? "En tu apartamento" : `${financeKpis.occupiedUnits ?? 71} unidades ocupadas`}
+                  tone="primary"
+                />
               </View>
-              <View style={styles.balanceDivider} />
-              <View style={styles.balanceCol}>
-                <Text style={styles.balanceColLabel}>EGRESOS</Text>
-                <View style={styles.balanceColRow}>
-                  <Text
-                    style={[
-                      styles.balanceColValue,
-                      { color: colors.expenseOnDark },
-                    ]}
-                  >
-                    −{fmtNum(financeKpis.expenseMonth)}
-                  </Text>
-                  <Sparkline
-                    data={expenseTrend}
-                    color={colors.expenseOnDark}
-                    width={44}
-                    height={18}
-                    fill={false}
+              {user?.role !== 'accountant' && user?.role !== 'resident' && (
+                <View style={styles.kpiCol}>
+                  <KPICard
+                    icon="alert-circle"
+                    label="Morosos"
+                    value={String(financeKpis.overdue)}
+                    sub={fmt(financeKpis.overdueAmount)}
+                    tone="danger"
+                    onPress={() => router.push("/debtors")}
                   />
                 </View>
+              )}
+              <View style={(user?.role === 'accountant' || user?.role === 'resident') ? styles.kpiCol : styles.kpiFullWidth}>
+                {user?.role === 'resident' ? (
+                  <KPICard
+                    icon="calendar"
+                    label="Días para pagar"
+                    value={`${getDaysLeftToPay()} ${getDaysLeftToPay() === 1 ? 'día' : 'días'}`}
+                    sub="Límite: el 9 de cada mes"
+                    tone="warning"
+                  />
+                ) : (
+                  <KPICard
+                    icon="checkmark-circle"
+                    label="Cobranza"
+                    value={`${financeKpis.collectionRate}%`}
+                    sub="+5% vs mes pasado"
+                    tone="success"
+                  />
+                )}
               </View>
             </View>
-          </View>
-        </View>
 
-        {/* Grid 2x2 de KPIs */}
-        <View style={styles.kpiGrid}>
-          <View style={styles.kpiCol}>
-            <KPICard
-              icon="people"
-              label="Residentes"
-              value={String(financeKpis.totalResidents ?? 152)}
-              sub={`${financeKpis.occupiedUnits ?? 71} unidades ocupadas`}
-              tone="primary"
+            {/* Pagos recientes */}
+            <SectionHead
+              title="Pagos recientes"
+              action="Ver todos"
+              onAction={() => router.push("/(tabs)/payments")}
             />
-          </View>
-          <View style={styles.kpiCol}>
-            <KPICard
-              icon="alert-circle"
-              label="Morosos"
-              value={String(financeKpis.overdue)}
-              sub={fmt(financeKpis.overdueAmount)}
-              tone="danger"
-              onPress={() => router.push("/debtors")}
-            />
-          </View>
-          <View style={styles.kpiFullWidth}>
-            <KPICard
-              icon="checkmark-circle"
-              label="Cobranza"
-              value={`${financeKpis.collectionRate}%`}
-              sub="+5% vs mes pasado"
-              tone="success"
-            />
-          </View>
-        </View>
+            <View style={styles.paymentList}>
+              {recentPayments.length > 0 ? (
+                recentPayments.map((p) => {
+                  const isMonthly = p.type === "Mensualidad";
+                  const tone = isMonthly ? tones.primary : tones.success;
+                  return (
+                    <View key={p.id} style={styles.paymentRow}>
+                      <View
+                        style={[
+                          styles.paymentIcon,
+                          { backgroundColor: tone.bgStrong },
+                        ]}
+                      >
+                        <Ionicons name="wallet" size={18} color={tone.fgStrong} />
+                      </View>
+                      <View style={styles.paymentInfo}>
+                        <Text style={styles.paymentName} numberOfLines={1}>
+                          {p.resident}
+                        </Text>
+                        <Text style={styles.paymentMeta}>
+                          {p.unit} · {p.type} · {p.date}
+                        </Text>
+                      </View>
+                      <Text style={styles.paymentAmount}>+{p.amount.toFixed(2)}</Text>
+                    </View>
+                  );
+                })
+              ) : (
+                <Text style={{ textAlign: 'center', color: colors.textMuted, marginVertical: 12 }}>
+                  No hay pagos recientes
+                </Text>
+              )}
+            </View>
 
-        {/* Pagos recientes */}
-        <SectionHead
-          title="Pagos recientes"
-          action="Ver todos"
-          onAction={() => router.push("/(tabs)/payments")}
-        />
-        <View style={styles.paymentList}>
-          {recentPayments.map((p) => {
-            const isMonthly = p.type === "Mensualidad";
-            const tone = isMonthly ? tones.primary : tones.success;
-            return (
-              <View key={p.id} style={styles.paymentRow}>
-                <View
-                  style={[
-                    styles.paymentIcon,
-                    { backgroundColor: tone.bgStrong },
-                  ]}
-                >
-                  <Ionicons name="wallet" size={18} color={tone.fgStrong} />
+            {/* Acciones rápidas */}
+            {allowedActions.length > 0 && (
+              <>
+                <SectionHead title="Acciones rápidas" />
+                <View style={styles.actionsGrid}>
+                  {allowedActions.map((a) => (
+                    <Pressable
+                      key={a.id}
+                      onPress={() => handleQuickAction(a.id, a.label)}
+                      style={({ pressed }) => [
+                        styles.actionTile,
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <View
+                        style={[styles.actionIcon, { backgroundColor: a.color + "15" }]}
+                      >
+                        <Ionicons name={a.icon} size={19} color={a.color} />
+                      </View>
+                      <Text style={styles.actionLabel}>{a.label}</Text>
+                    </Pressable>
+                  ))}
                 </View>
-                <View style={styles.paymentInfo}>
-                  <Text style={styles.paymentName} numberOfLines={1}>
-                    {p.resident}
-                  </Text>
-                  <Text style={styles.paymentMeta}>
-                    {p.unit} · {p.type} · {p.date}
-                  </Text>
-                </View>
-                <Text style={styles.paymentAmount}>+{p.amount.toFixed(2)}</Text>
-              </View>
-            );
-          })}
-        </View>
-
-        {/* Acciones rápidas */}
-        <SectionHead title="Acciones rápidas" />
-        <View style={styles.actionsGrid}>
-          {QUICK_ACTIONS.map((a) => (
-            <Pressable
-              key={a.id}
-              onPress={() => handleQuickAction(a.id, a.label)}
-              style={({ pressed }) => [
-                styles.actionTile,
-                pressed && { opacity: 0.7 },
-              ]}
-            >
-              <View
-                style={[styles.actionIcon, { backgroundColor: a.color + "15" }]}
-              >
-                <Ionicons name={a.icon} size={19} color={a.color} />
-              </View>
-              <Text style={styles.actionLabel}>{a.label}</Text>
-            </Pressable>
-          ))}
-        </View>
+              </>
+            )}
+          </>
+        )}
 
         {/* Último anuncio */}
         <SectionHead
@@ -462,6 +596,47 @@ const styles = StyleSheet.create({
   },
   scroll: {
     paddingBottom: spacing.scrollerBottom,
+  },
+  unlinkedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fef2f2",
+    borderWidth: 1,
+    borderColor: "#fca5a5",
+    borderRadius: radius.lg,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 8,
+    gap: 8,
+  },
+  unlinkedBannerText: {
+    color: "#991b1b",
+    fontSize: 12,
+    fontWeight: fontWeight.medium,
+    flex: 1,
+  },
+  emptyStateCard: {
+    backgroundColor: colors.surfaceSoft,
+    borderRadius: radius.xl,
+    padding: 24,
+    marginHorizontal: spacing.screen,
+    marginTop: 16,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+  },
+  emptyStateTitle: {
+    fontSize: 16,
+    fontWeight: fontWeight.bold,
+    color: colors.text,
+    marginBottom: 6,
+  },
+  emptyStateText: {
+    fontSize: 13,
+    color: colors.textMuted,
+    textAlign: "center",
+    lineHeight: 18,
   },
 
   // Hero
@@ -531,6 +706,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     overflow: "hidden",
     position: "relative",
+  },
+  balanceDividerHorizontal: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    marginVertical: 4,
+  },
+  residentStatusLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.semibold,
+    color: "rgba(255,255,255,0.5)",
+    letterSpacing: 0.5,
+  },
+  residentPropLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.semibold,
+    color: "rgba(255,255,255,0.5)",
+    letterSpacing: 0.5,
+    textAlign: "right",
+  },
+  residentPropValue: {
+    fontSize: 14,
+    fontWeight: fontWeight.bold,
+    color: "#fff",
+    marginTop: 4,
   },
   balanceGlow: {
     position: "absolute",

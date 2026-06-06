@@ -1,12 +1,19 @@
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from apps.accounts.permissions import IsAdminOrCreator
 from .models import Announcement
 from .serializers import AnnouncementSerializer
 
 class AnnouncementViewSet(viewsets.ModelViewSet):
     queryset = Announcement.objects.all().order_by('-pinned', '-created_at')
     serializer_class = AnnouncementSerializer
+
+    def get_permissions(self):
+        if self.action in ["create", "update", "partial_update", "destroy"]:
+            return [IsAuthenticated(), IsAdminOrCreator()]
+        return [IsAuthenticated()]
 
     def perform_create(self, serializer):
         instance = serializer.save()
@@ -23,5 +30,6 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
         announcements = Announcement.objects.all().order_by('-created_at')[:2]
         serializer = self.get_serializer(announcements, many=True)
         return Response(serializer.data)
+
 
 # Create your views here.

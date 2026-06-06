@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "../../services/api";
+import { useAuth } from "../../hooks/useAuth";
 
 import { AnnouncementModal } from "../../components/modals/AnnouncementModal";
 import { ConfirmDialog } from "../../components/modals/ConfirmDialog";
@@ -96,6 +97,9 @@ const categoryTone = (c: AnnouncementCategory) => {
 };
 
 export default function AnnouncementsScreen() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'board';
+
   const { create: createParam } = useLocalSearchParams<{
     create?: string | string[];
   }>();
@@ -151,6 +155,7 @@ export default function AnnouncementsScreen() {
   });
 
   const handleNewAnnouncement = () => {
+    if (!isAdmin) return;
     setAnnouncementEditDraft(null);
     setAnnouncementModalOpen(true);
   };
@@ -159,12 +164,17 @@ export default function AnnouncementsScreen() {
     if (createFlag !== "1") {
       return;
     }
+    if (!isAdmin) {
+      router.setParams({ create: undefined });
+      return;
+    }
     setAnnouncementEditDraft(null);
     setAnnouncementModalOpen(true);
     router.setParams({ create: undefined });
-  }, [createFlag, router]);
+  }, [createFlag, router, isAdmin]);
 
   const openEditAnnouncement = (announcement: any) => {
+    if (!isAdmin) return;
     setAnnouncementEditDraft({
       id: announcement.id,
       title: announcement.title,
@@ -258,13 +268,13 @@ export default function AnnouncementsScreen() {
           title="Anuncios"
           subtitle={`${announcements.length} publicados`}
           large
-          right={
+          right={isAdmin ? (
             <IconBtn
               icon="add"
               tone="primary"
               onPress={handleNewAnnouncement}
             />
-          }
+          ) : null}
         />
 
         <SearchField
@@ -325,11 +335,13 @@ export default function AnnouncementsScreen() {
                     </Text>
                     <Pill tone={categoryTone(a.category)}>{a.category}</Pill>
                     <Text style={styles.date}>{a.date}</Text>
-                    <OverflowMenuTrigger
-                      onOpen={(anchor) =>
-                        setCardMenu({ announcement: a, anchor })
-                      }
-                    />
+                    {isAdmin && (
+                      <OverflowMenuTrigger
+                        onOpen={(anchor) =>
+                          setCardMenu({ announcement: a, anchor })
+                        }
+                      />
+                    )}
                   </View>
                   <Text style={styles.pinnedTitle}>{a.title}</Text>
                   <Text style={styles.pinnedBody}>{a.body}</Text>
@@ -357,11 +369,13 @@ export default function AnnouncementsScreen() {
 
                   <Text style={styles.date}>{a.date}</Text>
 
-                  <OverflowMenuTrigger
-                    onOpen={(anchor) =>
-                      setCardMenu({ announcement: a, anchor })
-                    }
-                  />
+                  {isAdmin && (
+                    <OverflowMenuTrigger
+                      onOpen={(anchor) =>
+                        setCardMenu({ announcement: a, anchor })
+                      }
+                    />
+                  )}
                 </View>
                 <Text style={styles.title}>{a.title}</Text>
                 <Text style={styles.body} numberOfLines={2}>
@@ -373,7 +387,7 @@ export default function AnnouncementsScreen() {
         </View>
       </ScrollView>
 
-      <FAB onPress={handleNewAnnouncement} />
+      {isAdmin && <FAB onPress={handleNewAnnouncement} />}
 
       <Modal
         visible={!!cardMenu}

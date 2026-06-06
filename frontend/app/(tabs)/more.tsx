@@ -52,6 +52,13 @@ export default function More() {
     },
   ];
 
+  const allowedItems = items.filter((it) => {
+    if (user?.role === 'resident' && it.id === 'debtors') {
+      return false;
+    }
+    return true;
+  });
+
   return (
     <SafeAreaView style={styles.flex} edges={['top']}>
       <ScrollView contentContainerStyle={{ paddingBottom: spacing.scrollerBottom }}>
@@ -72,7 +79,7 @@ export default function More() {
 
         <SectionHead title="Gestión" />
         <View style={{ paddingHorizontal: spacing.screen }}>
-          {items.map((it) => (
+          {allowedItems.map((it) => (
             <Pressable key={it.id} onPress={it.onPress} style={styles.row}>
               <View style={[styles.iconBox, { backgroundColor: it.color + '15' }]}>
                 <Ionicons name={it.icon} size={19} color={it.color} />
