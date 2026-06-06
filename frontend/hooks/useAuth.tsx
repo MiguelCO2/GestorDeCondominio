@@ -26,7 +26,16 @@ interface AuthCtx {
   signUp: (payload: RegisterPayload) => Promise<{ ok: boolean; message?: string; email?: string }>;
   verifyEmail: (payload: VerifyEmailPayload) => Promise<{ ok: boolean; message?: string }>;
   resendVerificationCode: (email: string) => Promise<{ ok: boolean; message?: string }>;
-  updateProfile: (payload: FormData) => Promise<{ ok: boolean; message?: string }>;
+  updateProfile: (payload: FormData) => Promise<{
+    ok: boolean;
+    message?: string;
+    requiresEmailVerification?: boolean;
+    pendingEmail?: string;
+  }>;
+  verifyEmailChange: (code: string) => Promise<{
+    ok: boolean;
+    message?: string;
+  }>;
   signOut: () => Promise<void>;
 }
 
@@ -63,6 +72,11 @@ type RegisterResponse = {
 type VerifyEmailPayload = {
   email: string;
   code: string;
+};
+
+type VerifyEmailChangeResponse = {
+  message: string;
+  user: LoginResponse['user'];
 };
 
 const Ctx = createContext<AuthCtx | null>(null);
@@ -318,11 +332,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       );
   
       const normalizedUser = normalizeUser(response.data);
-  
+
       setUser(normalizedUser);
-  
+      
       const session = await getSession();
-  
+      
       if (session) {
         await saveSession({
           access: session.access,
@@ -330,9 +344,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           user: normalizedUser,
         });
       }
-  
+      
+      const responseData = response.data as LoginResponse['user'] & {
+        message?: string;
+        requires_email_verification?: boolean;
+        pending_email?: string;
+      };
+      
       return {
         ok: true,
+        message: responseData.message,
+        requiresEmailVerification: responseData.requires_email_verification || false,
+        pendingEmail: responseData.pending_email,
       };
     } catch (error: any) {
       const backendError = error?.response?.data;
@@ -367,6 +390,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
     }
   };
+
+  const verifyEmailChange = async (code: string) => {
+  try {
+    const response = await api.post<VerifyEmailChangeResponse>(
+      '/auth/verify-email-change/',
+      {
+        code: code.trim(),
+      }
+    );
+
+    const normalizedUser = normalizeUser(response.data.user);
+
+    setUser(normalizedUser);
+
+    const session = await getSession();
+
+    if (session) {
+      await saveSession({
+        access: session.access,
+        refresh: session.refresh,
+        user: normalizedUser,
+      });
+    }
+
+    return {
+      ok: true,
+      message: response.data.message,
+    };
+  } catch (error: any) {
+    const backendError = error?.response?.data;
+
+    console.log('Verify email change error:', backendError || error?.message || error);
+
+    const getErrorMessage = (field: string) => {
+      const fieldError = backendError?.[field];
+
+      if (Array.isArray(fieldError)) {
+        return fieldError[0];
+      }
+
+      if (typeof fieldError === 'string') {
+        return fieldError;
+      }
+
+      return null;
+    };
+
+    const message =
+      getErrorMessage('code') ||
+      backendError?.detail ||
+      'No se pudo verificar el cambio de correo.';
+
+    return {
+      ok: false,
+      message,
+    };
+  }
+};
 
   const signInWithBiometrics = async () => {
     try {
@@ -415,6 +496,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         verifyEmail,
         resendVerificationCode,
         updateProfile,
+        verifyEmailChange,
         signInWithBiometrics,
         signOut,
       }}
