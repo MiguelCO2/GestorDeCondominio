@@ -10,25 +10,36 @@ from django.utils import timezone
 User = get_user_model()
 
 class UserNestedSerializer(serializers.ModelSerializer):
-    document_id = serializers.CharField(required=False, allow_blank=True)
+    id = serializers.IntegerField(required=False)
+    username = serializers.CharField(required=False)
+    email = serializers.EmailField(required=False)
+    document_id = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = User
-        fields = ['id', 'full_name', 'email', 'phone', 'document_id']
+        fields = [
+            'id',
+            'username',
+            'full_name',
+            'email',
+            'phone',
+            'profile_image',
+            'document_id',
+        ]
         extra_kwargs = {
-            'email': {'validators': []}, # Remove unique validator for nested updates
+            'username': {'validators': []},
+            'email': {'validators': []},
         }
 
-    def to_representation(self, instance):
-        ret = super().to_representation(instance)
+    def get_document_id(self, obj):
         try:
-            if hasattr(instance, 'resident_profile') and instance.resident_profile:
-                ret['document_id'] = instance.resident_profile.document_id
-            else:
-                ret['document_id'] = ""
+            profile = getattr(obj, 'resident_profile', None)
+            if profile:
+                return profile.document_id or ''
         except Exception:
-            ret['document_id'] = ""
-        return ret
+            pass
+
+        return ''
 
 class PropertySerializer(serializers.ModelSerializer):
     owner = UserNestedSerializer(required=False, allow_null=True)
@@ -73,52 +84,50 @@ class PropertySerializer(serializers.ModelSerializer):
     def _handle_user_data(self, user_data, instance=None, resident_type="owner"):
         if not user_data:
             return None
-            
+
         email = user_data.get('email')
         if not email:
             return None
-            
-        user = None
-        if instance:
-            user = instance
-            
+
+        user = instance if instance else None
+
         if not user:
             user = User.objects.filter(email=email).first()
-            
-        if user:
-            # Update existing user
-            if 'full_name' in user_data:
-                user.full_name = user_data['full_name']
-            if 'phone' in user_data:
-                user.phone = user_data['phone']
-            user.save()
-        else:
-            # Create new user
-            username = email.split('@')[0]
-            # Ensure unique username
-            base_username = username
-            counter = 1
-            while User.objects.filter(username=username).exists():
-                username = f"{base_username}{counter}"
-                counter += 1
-                
-            user = User.objects.create(
-                username=username,
-                email=email,
-                full_name=user_data.get('full_name', ''),
-                phone=user_data.get('phone', '')
-            )
-        
-        # Update or create ResidentProfile
-        document_id = user_data.get('document_id', '')
+
+        if not user:
+            raise serializers.ValidationError({
+                resident_type: "El usuario indicado no existe en la tabla de cuentas. Debes seleccionar un usuario registrado."
+            })
+
+        username = user_data.get('username', '').strip()
+        full_name = user_data.get('full_name', '').strip()
+        phone = user_data.get('phone', '').strip()
+
+        if username and username != user.username:
+            raise serializers.ValidationError({
+                resident_type: "El nombre de usuario no coincide con el correo seleccionado."
+            })
+
+        if full_name and full_name != user.full_name:
+            raise serializers.ValidationError({
+                resident_type: "El nombre completo no coincide con el usuario seleccionado."
+            })
+
+        if phone and phone != user.phone:
+            raise serializers.ValidationError({
+                resident_type: "El teléfono no coincide con el usuario seleccionado."
+            })
+
+        document_id = ''
         profile, created = ResidentProfile.objects.get_or_create(
             user=user,
             defaults={
                 'resident_type': resident_type,
                 'document_id': document_id,
-                'condominium_id': 1  # Will be updated if necessary
+                'condominium_id': 1
             }
         )
+
         if not created and document_id:
             profile.document_id = document_id
             profile.save()
