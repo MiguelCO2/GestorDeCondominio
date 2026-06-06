@@ -30,27 +30,6 @@ def send_email_verification_code(user):
         fail_silently=False,
     )
 
-def send_email_change_code(user, new_email):
-    code = user.generate_email_change_code(new_email)
-    user.save(update_fields=[
-        "pending_email",
-        "email_change_code",
-        "email_change_expires_at",
-    ])
-
-    send_mail(
-        subject="Código para cambiar tu correo - Residencias Los Robles",
-        message=(
-            f"Hola {user.full_name or user.username},\n\n"
-            f"Tu código para confirmar el cambio de correo es: {code}\n\n"
-            "Este código vence en 10 minutos.\n\n"
-            "Si no solicitaste este cambio, puedes ignorar este mensaje."
-        ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[new_email],
-        fail_silently=False,
-    )
-
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -353,31 +332,6 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Este correo ya está registrado en otra cuenta.")
 
         return value
-    
-    def update(self, instance, validated_data):
-        new_email = validated_data.pop("email", None)
-        email_change_requested = False
-
-        if new_email:
-            new_email = new_email.lower().strip()
-
-            if new_email != instance.email:
-                if User.objects.exclude(id=instance.id).filter(email=new_email).exists():
-                    raise serializers.ValidationError({
-                        "email": "Este correo ya está registrado en otra cuenta."
-                    })
-
-                send_email_change_code(instance, new_email)
-                email_change_requested = True
-
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-
-        instance.save()
-
-        instance.email_change_requested = email_change_requested
-
-        return instance
 
     def validate_phone(self, value):
         clean_phone = "".join(filter(str.isdigit, value))
@@ -388,34 +342,3 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
             )
 
         return clean_phone
-
-class VerifyEmailChangeSerializer(serializers.Serializer):
-    code = serializers.CharField(max_length=6)
-
-    def validate(self, attrs):
-        user = self.context["request"].user
-        code = attrs.get("code", "").strip()
-
-        if not user.is_email_change_code_valid(code):
-            raise serializers.ValidationError({
-                "code": "El código es inválido o ya venció."
-            })
-
-        return attrs
-
-    def save(self):
-        user = self.context["request"].user
-
-        user.email = user.pending_email
-        user.pending_email = ""
-        user.email_change_code = ""
-        user.email_change_expires_at = None
-
-        user.save(update_fields=[
-            "email",
-            "pending_email",
-            "email_change_code",
-            "email_change_expires_at",
-        ])
-
-        return user

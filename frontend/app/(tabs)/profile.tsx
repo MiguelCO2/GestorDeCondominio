@@ -7,7 +7,6 @@ import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -30,20 +29,14 @@ type SelectedImage = {
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, updateProfile, verifyEmailChange, signOut } = useAuth();
+  const { user, updateProfile, signOut } = useAuth();
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
 
   const [selectedImage, setSelectedImage] = useState<SelectedImage | null>(null);
-  
-  const [emailChangeError, setEmailChangeError] = useState<string | null>(null);
-  const [verifyingEmailChange, setVerifyingEmailChange] = useState(false);
-  const [emailChangeModalVisible, setEmailChangeModalVisible] = useState(false);
-  const [pendingEmail, setPendingEmail] = useState('');
-  const [emailChangeCode, setEmailChangeCode] = useState('');
-  
+
   const [saving, setSaving] = useState(false);
   const [pickingImage, setPickingImage] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -200,14 +193,6 @@ export default function ProfileScreen() {
 
       if (result.ok) {
         setSelectedImage(null);
-      
-        if (result.requiresEmailVerification) {
-          setPendingEmail(result.pendingEmail || email.trim().toLowerCase());
-          setEmailChangeModalVisible(true);
-          setMessage(result.message || 'Te enviamos un código para confirmar el nuevo correo.');
-          return;
-        }
-      
         setMessage('Perfil actualizado correctamente.');
       } else {
         setError(result.message || 'No se pudo actualizar el perfil.');
@@ -217,36 +202,6 @@ export default function ProfileScreen() {
       setError('Ocurrió un error al actualizar el perfil.');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleVerifyEmailChange = async () => {
-    const cleanCode = emailChangeCode.replace(/\D/g, '');
-  
-    if (cleanCode.length !== 6) {
-      setEmailChangeError('Ingresa el código de 6 dígitos.');
-      return;
-    }
-  
-    try {
-      setVerifyingEmailChange(true);
-      setEmailChangeError(null);
-  
-      const result = await verifyEmailChange(cleanCode);
-  
-      if (result.ok) {
-        setEmailChangeModalVisible(false);
-        setEmailChangeCode('');
-        setPendingEmail('');
-        setMessage(result.message || 'Correo actualizado correctamente.');
-      } else {
-        setEmailChangeError(result.message || 'No se pudo verificar el código.');
-      }
-    } catch (err) {
-      console.log('Verify email change screen error:', err);
-      setEmailChangeError('Ocurrió un error al verificar el código.');
-    } finally {
-      setVerifyingEmailChange(false);
     }
   };
 
@@ -302,65 +257,6 @@ export default function ProfileScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Modal
-        visible={emailChangeModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setEmailChangeModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalIcon}>
-              <Ionicons name="mail-unread-outline" size={28} color="#fff" />
-            </View>
-
-            <Text style={styles.modalTitle}>Confirma tu nuevo correo</Text>
-
-            <Text style={styles.modalText}>
-              Enviamos un código de 6 dígitos a:
-            </Text>
-
-            <Text style={styles.modalEmail}>{pendingEmail}</Text>
-
-            <View style={styles.modalInputBox}>
-              <Ionicons name="keypad-outline" size={18} color={colors.textMuted} />
-              <TextInput
-                value={emailChangeCode}
-                onChangeText={(value) =>
-                  setEmailChangeCode(value.replace(/\D/g, '').slice(0, 6))
-                }
-                placeholder="123456"
-                placeholderTextColor={colors.textSubtle}
-                keyboardType="number-pad"
-                maxLength={6}
-                style={styles.modalInput}
-                caretHidden={false}
-                cursorColor={colors.primary}
-                selectionColor={colors.primary}
-              />
-            </View>
-
-            {emailChangeError ? (
-              <Text style={styles.modalError}>{emailChangeError}</Text>
-            ) : null}
-
-            <Btn full loading={verifyingEmailChange} onPress={handleVerifyEmailChange}>
-              Confirmar correo
-            </Btn>
-
-            <Pressable
-              style={styles.modalCancel}
-              onPress={() => {
-                setEmailChangeModalVisible(false);
-                setEmailChangeCode('');
-                setEmailChangeError(null);
-              }}
-            >
-              <Text style={styles.modalCancelText}>Verificar después</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
         <View style={styles.header}>
           <Pressable style={styles.backButton} onPress={() => router.back()}>
             <Ionicons name="chevron-back" size={22} color={colors.text} />
@@ -430,6 +326,7 @@ export default function ProfileScreen() {
                 style={styles.input}
                 autoCapitalize="none"
                 autoCorrect={false}
+                keyboardType="email-address"
                 caretHidden={false}
                 cursorColor={colors.primary}
               />
@@ -670,97 +567,6 @@ const styles = StyleSheet.create({
   logoutText: {
     fontSize: 13,
     color: '#dc2626',
-    fontWeight: fontWeight.semibold,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 22,
-  },
-  
-  modalCard: {
-    width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: radius['3xl'],
-    padding: 22,
-    borderWidth: 1,
-    borderColor: colors.borderSubtle,
-  },
-  
-  modalIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  
-  modalTitle: {
-    fontSize: 20,
-    color: colors.text,
-    fontWeight: fontWeight.bold,
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  
-  modalText: {
-    fontSize: 13,
-    color: colors.textMuted,
-    textAlign: 'center',
-  },
-  
-  modalEmail: {
-    fontSize: 14,
-    color: colors.primary,
-    fontWeight: fontWeight.semibold,
-    textAlign: 'center',
-    marginTop: 6,
-    marginBottom: 18,
-  },
-  
-  modalInputBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: colors.surfaceSoft,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    height: 52,
-    marginBottom: 14,
-  },
-  
-  modalInput: {
-    flex: 1,
-    fontSize: 20,
-    color: colors.text,
-    fontWeight: fontWeight.bold,
-    paddingVertical: 0,
-    letterSpacing: 4,
-  },
-  
-  modalError: {
-    fontSize: 12,
-    color: '#dc2626',
-    fontWeight: fontWeight.semibold,
-    marginTop: -4,
-    marginBottom: 12,
-  },
-  
-  modalCancel: {
-    marginTop: 14,
-    alignItems: 'center',
-  },
-  
-  modalCancelText: {
-    fontSize: 13,
-    color: colors.textMuted,
     fontWeight: fontWeight.semibold,
   },
 });

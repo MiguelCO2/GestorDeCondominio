@@ -9,7 +9,6 @@ from .serializers import (
     UserSerializer,
     ProfileUpdateSerializer,
     VerifyEmailSerializer,
-    VerifyEmailChangeSerializer,
     ResendEmailVerificationSerializer,
 )
 
@@ -54,6 +53,11 @@ class VerifyEmailAPIView(APIView):
         if serializer.is_valid():
             user = serializer.save()
 
+            login_serializer = LoginSerializer(data={
+                "email": user.email,
+                "password": request.data.get("password", ""),
+            })
+
             from rest_framework_simplejwt.tokens import RefreshToken
 
             refresh = RefreshToken.for_user(user)
@@ -70,27 +74,6 @@ class VerifyEmailAPIView(APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class VerifyEmailChangeAPIView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        serializer = VerifyEmailChangeSerializer(
-            data=request.data,
-            context={"request": request}
-        )
-
-        if serializer.is_valid():
-            user = serializer.save()
-
-            return Response(
-                {
-                    "message": "Correo actualizado correctamente.",
-                    "user": UserSerializer(user).data,
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class ResendEmailVerificationAPIView(APIView):
     permission_classes = [AllowAny]
@@ -134,15 +117,8 @@ class ProfileAPIView(APIView):
         )
 
         if serializer.is_valid():
-            user = serializer.save()
-
-            response_data = UserSerializer(user).data
-
-            if getattr(user, "email_change_requested", False):
-                response_data["requires_email_verification"] = True
-                response_data["pending_email"] = user.pending_email
-                response_data["message"] = "Te enviamos un código para confirmar el nuevo correo."
-
-            return Response(response_data, status=status.HTTP_200_OK)
+            serializer.save()
+            user_serializer = UserSerializer(request.user)
+            return Response(user_serializer.data, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
