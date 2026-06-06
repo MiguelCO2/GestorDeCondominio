@@ -105,6 +105,8 @@ export default function AnnouncementsScreen() {
     : createParam;
 
   const [search, setSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<AnnouncementCategory | "TODOS">("TODOS");
+  const [showFilters, setShowFilters] = useState(false);
   const [announcementModalOpen, setAnnouncementModalOpen] = useState(false);
   const [announcementEditDraft, setAnnouncementEditDraft] = useState<{
     id: number;
@@ -128,9 +130,19 @@ export default function AnnouncementsScreen() {
     emoji?: string;
   } | null>(null);
 
-  const pinned = announcements.filter((a) => a.pinned);
+  const pinned = announcements.filter((a) => {
+    if (!a.pinned) return false;
+    if (selectedCategory !== "TODOS" && a.category !== selectedCategory) return false;
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q)
+    );
+  });
+
   const others = announcements.filter((a) => {
     if (a.pinned) return false;
+    if (selectedCategory !== "TODOS" && a.category !== selectedCategory) return false;
     if (!search) return true;
     const q = search.toLowerCase();
     return (
@@ -260,6 +272,43 @@ export default function AnnouncementsScreen() {
           onChangeText={setSearch}
           placeholder="Buscar anuncio…"
         />
+
+        {/* Botón de Filtros */}
+        <View style={{ flexDirection: "row", justifyContent: "flex-start", paddingHorizontal: spacing.screen, marginBottom: 8, marginTop: 4 }}>
+          <Pressable 
+            onPress={() => setShowFilters(!showFilters)}
+            style={[styles.filterBtn, showFilters && styles.filterBtnActive]}
+          >
+            <Ionicons name="options-outline" size={16} color={showFilters ? "#fff" : colors.text} />
+            <Text style={[styles.filterBtnText, showFilters && styles.filterBtnTextActive]}>Filtros</Text>
+          </Pressable>
+        </View>
+
+        {showFilters && (
+          <View style={styles.collapsibleFilters}>
+            <View style={styles.filtersHeader}>
+              <Ionicons name="funnel-outline" size={14} color={colors.textSecondary} />
+              <Text style={styles.filtersTitle}>Filtrar por Categoría</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catScroll}>
+              <Pressable
+                onPress={() => setSelectedCategory("TODOS")}
+                style={[styles.catFilterPill, selectedCategory === "TODOS" && styles.catFilterPillActive]}
+              >
+                <Text style={[styles.catFilterText, selectedCategory === "TODOS" && styles.catFilterTextActive]}>Todas</Text>
+              </Pressable>
+              {(["Mantenimiento", "Asamblea", "Seguridad", "Áreas Comunes"] as AnnouncementCategory[]).map((cat) => (
+                <Pressable
+                  key={cat}
+                  onPress={() => setSelectedCategory(cat)}
+                  style={[styles.catFilterPill, selectedCategory === cat && styles.catFilterPillActive]}
+                >
+                  <Text style={[styles.catFilterText, selectedCategory === cat && styles.catFilterTextActive]}>{cat}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {pinned.length > 0 && (
           <>
@@ -532,6 +581,78 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: fontWeight.medium,
     color: colors.textMuted,
+  },
+
+  filterBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    height: 38,
+    borderRadius: 12,
+  },
+  filterBtnActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterBtnText: {
+    fontSize: 13,
+    fontWeight: fontWeight.medium,
+    color: colors.text,
+  },
+  filterBtnTextActive: {
+    color: "#fff",
+  },
+  collapsibleFilters: {
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    borderRadius: radius.xl,
+    marginHorizontal: spacing.screen,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  filtersHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.screen,
+    gap: 6,
+    marginBottom: 8,
+  },
+  filtersTitle: {
+    fontSize: 11,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  catScroll: {
+    paddingHorizontal: spacing.screen,
+    gap: 6,
+  },
+  catFilterPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: colors.surfaceSoft,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  catFilterPillActive: {
+    backgroundColor: colors.primary + "15",
+    borderColor: colors.primary,
+  },
+  catFilterText: {
+    fontSize: 12,
+    fontWeight: fontWeight.medium,
+    color: colors.textSecondary,
+  },
+  catFilterTextActive: {
+    color: colors.primary,
+    fontWeight: fontWeight.bold,
   },
 
   // Lista general

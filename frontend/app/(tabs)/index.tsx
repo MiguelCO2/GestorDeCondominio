@@ -41,13 +41,13 @@ function getGreeting() {
 }
 
 const QUICK_ACTIONS = [
-  { id: "visit", icon: "qr-code", label: "Registrar\nvisita", color: "#2563eb" },
-  { id: "booking", icon: "calendar", label: "Nueva\nreserva", color: "#0891b2" },
+  { id: "expenses", icon: "receipt", label: "Verificar\ngastos", color: "#ea580c" },
+  { id: "add_resident", icon: "person-add", label: "Añadir\nresidentes", color: "#0891b2" },
   {
     id: "announce",
     icon: "megaphone",
     label: "Publicar\nanuncio",
-    color: "#ea580c",
+    color: "#2563eb",
   },
   { id: "export", icon: "download", label: "Exportar\nreporte", color: "#16a34a" },
 ] as const;
@@ -132,11 +132,13 @@ export default function HomeScreen() {
         balance: data.balance ?? 0.00,
         collectionRate: data.collectionRate ?? 87,
         totalUnits: 78,
-        occupied: 71,
+        occupied: data.occupiedUnits ?? 71,
         activeVisits: 2,
         pendingPayments: data.pendingPayments ?? 9,
         overdue: data.overdue ?? 4,
         overdueAmount: data.overdueAmount ?? 850.00,
+        totalResidents: data.totalResidents ?? 152,
+        occupiedUnits: data.occupiedUnits ?? 71,
       });
       if (data.incomeTrend && data.incomeTrend.length > 0) {
         setIncomeTrend(data.incomeTrend);
@@ -187,6 +189,14 @@ export default function HomeScreen() {
   );
 
   const handleQuickAction = (id: string, label: string) => {
+    if (id === "expenses") {
+      router.push("/expenses");
+      return;
+    }
+    if (id === "add_resident") {
+      router.push("/(tabs)/residents");
+      return;
+    }
     if (id === "announce") {
       router.push({
         pathname: "/(tabs)/announcements",
@@ -290,8 +300,8 @@ export default function HomeScreen() {
             <KPICard
               icon="people"
               label="Residentes"
-              value="152"
-              sub="71 unidades ocupadas"
+              value={String(financeKpis.totalResidents ?? 152)}
+              sub={`${financeKpis.occupiedUnits ?? 71} unidades ocupadas`}
               tone="primary"
             />
           </View>
@@ -305,22 +315,13 @@ export default function HomeScreen() {
               onPress={() => router.push("/debtors")}
             />
           </View>
-          <View style={styles.kpiCol}>
+          <View style={styles.kpiFullWidth}>
             <KPICard
               icon="checkmark-circle"
               label="Cobranza"
               value={`${financeKpis.collectionRate}%`}
               sub="+5% vs mes pasado"
               tone="success"
-            />
-          </View>
-          <View style={styles.kpiCol}>
-            <KPICard
-              icon="key"
-              label="Visitas hoy"
-              value="2"
-              sub="5 registros totales"
-              tone="neutral"
             />
           </View>
         </View>
@@ -583,6 +584,9 @@ const styles = StyleSheet.create({
   kpiCol: {
     width: "48%",
     flexGrow: 1,
+  },
+  kpiFullWidth: {
+    width: "100%",
   },
 
   // Pagos

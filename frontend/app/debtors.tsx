@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppBar } from '../components/ui/AppBar';
@@ -8,9 +10,9 @@ import { Avatar } from '../components/ui/Avatar';
 import { Btn } from '../components/ui/Btn';
 import { SectionHead } from '../components/ui/SectionHead';
 import { colors, radius, severityTone, spacing } from '../constants/theme';
-import { DEBTORS } from '../data/debtors';
 import { fmtNum } from '../data/format';
 import type { Debtor, DebtorSeverity } from '../data/types';
+import { api } from '../services/api';
 
 // Etiqueta visible del badge según severidad.
 const severityLabel: Record<DebtorSeverity, string> = {
@@ -22,8 +24,29 @@ const severityLabel: Record<DebtorSeverity, string> = {
 
 export default function DebtorsScreen() {
   const router = useRouter();
+  const [debtors, setDebtors] = useState<Debtor[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const total = DEBTORS.reduce((a, d) => a + d.amount, 0);
+  const fetchDebtors = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/pagos/morosos/');
+      setDebtors(res.data.debtors || []);
+    } catch (e) {
+      console.log('Error loading debtors:', e);
+      Alert.alert('Error', 'No se pudieron cargar los residentes morosos.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchDebtors();
+    }, [fetchDebtors])
+  );
+
+  const total = debtors.reduce((a, d) => a + d.amount, 0);
 
   const handleContact = (d: Debtor) => Alert.alert('Contactar', d.name);
   const handleRegisterPayment = (d: Debtor) =>
@@ -51,7 +74,7 @@ export default function DebtorsScreen() {
               <Text style={styles.heroAmount}>{fmtNum(total, 2)}</Text>
             </View>
             <Text style={styles.heroFoot}>
-              {DEBTORS.length} unidades con saldo vencido
+              {debtors.length} unidades con saldo vencido
             </Text>
           </View>
         </View>
@@ -60,63 +83,72 @@ export default function DebtorsScreen() {
 
         {/* Lista de morosos */}
         <View style={styles.list}>
-          {DEBTORS.map((d) => {
-            const sev = severityTone[d.severity];
-            return (
-              <View key={d.id} style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Avatar text={d.avatar} color={d.color} size={44} />
-                  <View style={styles.cardHeaderText}>
-                    <Text style={styles.name}>{d.name}</Text>
-                    <Text style={styles.unit}>{d.unit}</Text>
+          {loading ? (
+            <ActivityIndicator color={colors.primary} style={{ marginVertical: 32 }} />
+          ) : debtors.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="checkmark-circle-outline" size={36} color={colors.textSubtle} style={{ marginBottom: 8 }} />
+              <Text style={styles.emptyText}>¡Al día! No hay residentes con pagos pendientes.</Text>
+            </View>
+          ) : (
+            debtors.map((d) => {
+              const sev = severityTone[d.severity];
+              return (
+                <View key={d.id} style={styles.card}>
+                  <View style={styles.cardHeader}>
+                    <Avatar text={d.avatar} color={d.color} size={44} />
+                    <View style={styles.cardHeaderText}>
+                      <Text style={styles.name}>{d.name}</Text>
+                      <Text style={styles.unit}>{d.unit}</Text>
+                    </View>
+                    <View
+                      style={[styles.badge, { backgroundColor: sev.bg }]}
+                    >
+                      <Text style={[styles.badgeText, { color: sev.fg }]}>
+                        {severityLabel[d.severity]}
+                      </Text>
+                    </View>
                   </View>
-                  <View
-                    style={[styles.badge, { backgroundColor: sev.bg }]}
-                  >
-                    <Text style={[styles.badgeText, { color: sev.fg }]}>
-                      {severityLabel[d.severity]}
-                    </Text>
-                  </View>
-                </View>
 
-                <View style={styles.info}>
-                  <View style={styles.infoCol}>
-                    <Text style={styles.infoLabel}>MESES</Text>
-                    <Text style={styles.infoValue}>{d.months}</Text>
+                  <View style={styles.info}>
+                    <View style={styles.infoCol}>
+                      <Text style={styles.infoLabel}>MESES</Text>
+                      <Text style={styles.infoValue}>{d.months}</Text>
+                    </View>
+                    <View style={styles.infoCol}>
+                      <Text style={styles.infoLabel}>DEUDA</Text>
+                      <Text style={[styles.infoValue, styles.infoDebt]}>
+                        {d.amount.toFixed(0)}
+                      </Text>
+                    </View>
+                    <View style={styles.infoCol}>
+                      <Text style={styles.infoLabel}>ÚLTIMO</Text>
+                      <Text style={styles.infoLast}>{d.lastPayment}</Text>
+                    </View>
                   </View>
-                  <View style={styles.infoCol}>
-                    <Text style={styles.infoLabel}>DEUDA</Text>
-                    <Text style={[styles.infoValue, styles.infoDebt]}>
-                      {d.amount.toFixed(0)}
-                    </Text>
-                  </View>
-                  <View style={styles.infoCol}>
-                    <Text style={styles.infoLabel}>ÚLTIMO</Text>
-                    <Text style={styles.infoLast}>{d.lastPayment}</Text>
-                  </View>
-                </View>
 
-                <View style={styles.actions}>
-                  <Btn
-                    size="sm"
-                    variant="secondary"
-                    icon="call"
-                    onPress={() => handleContact(d)}
-                  >
-                    Contactar
-                  </Btn>
-                  <Btn
-                    size="sm"
-                    variant="primary"
-                    icon="send"
-                    onPress={() => handleRegisterPayment(d)}
-                  >
-                    Registrar pago
-                  </Btn>
+                  <View style={styles.actions}>
+                    <Btn
+                      size="sm"
+                      variant="secondary"
+                      icon="call"
+                      onPress={() => handleContact(d)}
+                    >
+                      Contactar
+                    </Btn>
+                    <Btn
+                      size="sm"
+                      variant="primary"
+                      icon="send"
+                      onPress={() => handleRegisterPayment(d)}
+                    >
+                      Registrar pago
+                    </Btn>
+                  </View>
                 </View>
-              </View>
-            );
-          })}
+              );
+            })
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -257,5 +289,16 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     gap: 8,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyText: {
+    fontSize: 13,
+    color: colors.textMuted,
+    fontWeight: '500',
+    textAlign: 'center',
   },
 });

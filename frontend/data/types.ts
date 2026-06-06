@@ -129,4 +129,6 @@ export interface FinanceKpis {
   pendingPayments: number;
   overdue: number;
   overdueAmount: number;
+  totalResidents?: number;
+  occupiedUnits?: number;
 }

@@ -156,11 +156,12 @@ def dashboard_pagos(request):
     morosos_m = Payment.objects.filter(estado='MOROSO', fecha_creacion__month=today.month, fecha_creacion__year=today.year).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
     
     total_m = cobrado_m + pendiente_m + morosos_m
-    collection_rate = int((cobrado_m / total_m) * 100) if total_m > 0 else 87
+    collection_rate = int((cobrado_m / total_m) * 100) if total_m > 0 else 100
 
-    # Count and amount of morosos (all time)
-    overdue_count = Payment.objects.filter(estado='MOROSO').values('residente').distinct().count()
-    overdue_amount = morosos
+    # Count and amount of unpaid/overdue residents (all time in state MOROSO)
+    overdue_qs = Payment.objects.filter(estado='MOROSO')
+    overdue_count = overdue_qs.values('residente', 'residente_nombre').distinct().count()
+    overdue_amount = overdue_qs.aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
 
     # Trends of the last 6 months
     income_trend = []
@@ -191,6 +192,9 @@ def dashboard_pagos(request):
         income_trend.append(float(inc_sum))
         expense_trend.append(float(exp_sum))
 
+    total_residents = ResidentProfile.objects.filter(is_active=True).count()
+    occupied_units = Property.objects.filter(Q(owner__isnull=False) | Q(tenant__isnull=False)).count()
+
     datos = {
         'total_cobrado': float(cobrado),
         'total_pendiente': float(pendiente),
@@ -201,13 +205,93 @@ def dashboard_pagos(request):
         'balance': float(balance),
         'incomeMonth': float(income_month),
         'expenseMonth': float(expense_month),
-        'overdue': overdue_count or 4, # Fallback to 4 if none in DB for visual coherence
-        'overdueAmount': float(overdue_amount) or 850.00,
+        'overdue': overdue_count,
+        'overdueAmount': float(overdue_amount),
         'collectionRate': collection_rate,
         'incomeTrend': income_trend,
         'expenseTrend': expense_trend,
+        'totalResidents': total_residents,
+        'occupiedUnits': occupied_units,
     }
     return JsonResponse(datos)
+
+
+def lista_morosos(request):
+    # Get all unpaid payments in state MOROSO
+    unpaid = Payment.objects.filter(estado='MOROSO').select_related(
+        'residente__user',
+        'residente__property'
+    ).order_by('-fecha_creacion')
+    
+    # Group by resident name or resident profile id
+    groups = {}
+    for p in unpaid:
+        key = p.residente_id if p.residente_id else p.residente_nombre
+        if not key:
+            continue
+        if key not in groups:
+            groups[key] = {
+                'name': _resident_display(p),
+                'unit': _unit_display(p) or p.unidad or 'Sin Unidad',
+                'payments': [],
+            }
+        groups[key]['payments'].append(p)
+        
+    # Now build the Debtor objects
+    debtors_list = []
+    import hashlib
+    for idx, (key, info) in enumerate(groups.items(), start=1):
+        payments = info['payments']
+        total_amount = sum(float(p.monto) for p in payments)
+        months_count = len(payments)
+        
+        # Find the last payment of this resident that is COBRADO
+        last_payment_date_str = 'Sin pagos'
+        res_id = key if isinstance(key, int) else None
+        res_name = key if isinstance(key, str) else None
+        
+        last_cobrado = None
+        if res_id:
+            last_cobrado = Payment.objects.filter(residente_id=res_id, estado='COBRADO').order_by('-fecha_creacion').first()
+        elif res_name:
+            last_cobrado = Payment.objects.filter(residente_nombre__iexact=res_name, estado='COBRADO').order_by('-fecha_creacion').first()
+            
+        if last_cobrado:
+            last_payment_date_str = _format_date_short(last_cobrado.fecha_creacion)
+            
+        # Severity based on months count
+        if months_count >= 4:
+            severity = 'critica'
+        elif months_count >= 3:
+            severity = 'alta'
+        elif months_count >= 2:
+            severity = 'media'
+        else:
+            severity = 'baja'
+            
+        # Initials for avatar
+        name = info['name']
+        parts = [p for p in name.split() if p]
+        avatar = ''.join(p[0].upper() for p in parts[:2]) if parts else 'R'
+        
+        # Color hash based on name
+        h = int(hashlib.md5(name.encode('utf-8')).hexdigest(), 16)
+        colors_palette = ['#ea580c', '#7c3aed', '#b91c1c', '#0d9488', '#2563eb', '#16a34a']
+        color = colors_palette[h % len(colors_palette)]
+        
+        debtors_list.append({
+            'id': res_id or idx,
+            'name': name,
+            'unit': info['unit'],
+            'months': months_count,
+            'amount': total_amount,
+            'lastPayment': last_payment_date_str,
+            'avatar': avatar,
+            'color': color,
+            'severity': severity,
+        })
+        
+    return JsonResponse({'debtors': debtors_list})
 
 
 def expense_to_dict(gasto):
