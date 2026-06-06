@@ -499,6 +499,20 @@ def lista_morosos(request):
     return JsonResponse({'debtors': debtors_list})
 
 
+def expense_to_dict(gasto):
+    return {
+        'id': gasto.id,
+        'categoria': gasto.categoria,
+        'categoria_display': gasto.get_categoria_display(),
+        'descripcion': gasto.descripcion,
+        'monto': float(gasto.monto),
+        'fecha': gasto.fecha.strftime('%Y-%m-%d') if gasto.fecha else '',
+        'torre': gasto.torre,
+        'comprobante': gasto.comprobante.url if gasto.comprobante else None,
+        'fecha_creacion': gasto.fecha_creacion.isoformat() if gasto.fecha_creacion else '',
+    }
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def lista_gastos(request):
@@ -657,12 +671,19 @@ def editar_gasto(request, pk):
 @permission_classes([IsAuthenticated])
 def resumen_torre(request):
     user = request.user
-    if user.role not in ['super_admin', 'admin', 'board', 'accountant']:
+    if user.role not in ['super_admin', 'admin', 'board', 'accountant', 'resident']:
         return JsonResponse({'error': 'No autorizado'}, status=403)
 
     torre = request.GET.get('torre')
-    if not torre:
-        return JsonResponse({'error': 'La torre es obligatoria'}, status=400)
+    if user.role == 'resident':
+        prop, _ = _get_resident_prop_and_profile(user)
+        if prop:
+            torre = prop.building
+        else:
+            return JsonResponse({'error': 'No tienes un apartamento asociado.'}, status=403)
+    else:
+        if not torre:
+            return JsonResponse({'error': 'La torre es obligatoria'}, status=400)
         
     now = timezone.now()
     try:

@@ -147,8 +147,18 @@ export default function ExpensesScreen() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    if (user?.role === 'resident' && user?.linked_property) {
+      const tower = user.linked_property.split(' · ')[0];
+      if (tower) {
+        setSelectedTower(tower);
+      }
+    }
+  }, [user]);
+
   // Open Modal for Create
   const handleNewExpense = () => {
+    if (isResident) return;
     setEditingExpense(null);
     setModalCategory('OTROS');
     setModalDescription('');
@@ -161,6 +171,7 @@ export default function ExpensesScreen() {
 
   // Open Modal for Edit
   const handleEditExpense = (expense: Expense) => {
+    if (isResident) return;
     setEditingExpense(expense);
     setModalCategory(expense.categoria);
     setModalDescription(expense.descripcion);
@@ -271,21 +282,23 @@ export default function ExpensesScreen() {
       />
 
       {/* Selector de Torres Horizontal */}
-      <View style={{ marginBottom: 12 }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.towersScroll}>
-          {TOWERS.map((t) => (
-            <Pressable
-              key={t}
-              onPress={() => setSelectedTower(t)}
-              style={[styles.towerPill, selectedTower === t && styles.towerPillActive]}
-            >
-              <Text style={[styles.towerPillText, selectedTower === t && styles.towerPillTextActive]}>
-                {t === 'TODOS' ? 'Todas las Torres' : t}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      </View>
+      {!isResident && (
+        <View style={{ marginBottom: 12 }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.towersScroll}>
+            {TOWERS.map((t) => (
+              <Pressable
+                key={t}
+                onPress={() => setSelectedTower(t)}
+                style={[styles.towerPill, selectedTower === t && styles.towerPillActive]}
+              >
+                <Text style={[styles.towerPillText, selectedTower === t && styles.towerPillTextActive]}>
+                  {t === 'TODOS' ? 'Todas las Torres' : t}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Tarjetas de Resumen Financiero de la Torre */}
