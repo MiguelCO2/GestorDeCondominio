@@ -31,7 +31,9 @@ import {
 import type { Resident, ResidentStatus } from '../../data/types';
 import { api } from '../../services/api';
 
-type Filter = 'todos' | 'aldia' | 'moroso';
+type Filter = 'todos' | 'aldia' | 'moroso' | 'pendiente';
+
+const TOWERS = ['Torre A-1', 'Torre B-1', 'Torre C-1', 'Torre C-2', 'Torre D-1', 'Torre E-1'];
 
 function statusPill(status: ResidentStatus) {
   if (status === 'al-dia') return <Pill tone="success">Al día</Pill>;
@@ -52,7 +54,7 @@ function mapPropertyToResident(prop: any): Resident {
     phone: activeUser?.phone || 'Sin teléfono',
     email: activeUser?.email || 'Sin correo',
     since: prop.owner_start_date || prop.tenant_start_date || 'N/A',
-    status: 'al-dia', // Placeholder for now, could be derived from payments
+    status: prop.payment_status || 'pendiente',
     avatar: initial,
     color: '#2563eb', // Can add random color generator if needed
   };
@@ -61,6 +63,8 @@ function mapPropertyToResident(prop: any): Resident {
 export default function ResidentsScreen() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('todos');
+  const [towerFilter, setTowerFilter] = useState<string | null>(null);
+  const [showTowers, setShowTowers] = useState(false);
   const [residents, setResidents] = useState<Resident[]>([]);
   const [selected, setSelected] = useState<Resident | null>(null);
   
@@ -89,6 +93,8 @@ export default function ResidentsScreen() {
   const filtered = residents.filter((r) => {
     if (filter === 'aldia' && r.status !== 'al-dia') return false;
     if (filter === 'moroso' && r.status !== 'moroso') return false;
+    if (filter === 'pendiente' && r.status !== 'pendiente') return false;
+    if (towerFilter && r.building !== towerFilter) return false;
     if (search && !r.name.toLowerCase().includes(search.toLowerCase())) {
       return false;
     }
@@ -156,14 +162,44 @@ export default function ResidentsScreen() {
           title="Residentes"
           subtitle={`${residents.length} activos`}
           large
-          right={<IconBtn icon="add" tone="primary" onPress={handleNew} />}
         />
 
-        <SearchField
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Buscar por nombre…"
-        />
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.screen }}>
+          <View style={{ flex: 1 }}>
+            <SearchField
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Buscar por nombre…"
+            />
+          </View>
+          <Pressable 
+            onPress={() => setShowTowers(!showTowers)}
+            style={[styles.filterBtn, showTowers && styles.filterBtnActive]}
+          >
+            <Ionicons name="options-outline" size={20} color={showTowers ? '#fff' : colors.text} />
+            <Text style={[styles.filterBtnText, showTowers && styles.filterBtnTextActive]}>Filtros</Text>
+          </Pressable>
+        </View>
+
+        {showTowers && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.towersScroll}>
+            <Pressable 
+              onPress={() => setTowerFilter(null)}
+              style={[styles.towerPill, !towerFilter && styles.towerPillActive]}
+            >
+              <Text style={[styles.towerPillText, !towerFilter && styles.towerPillTextActive]}>Todas las Torres</Text>
+            </Pressable>
+            {TOWERS.map(t => (
+              <Pressable 
+                key={t}
+                onPress={() => setTowerFilter(t)}
+                style={[styles.towerPill, towerFilter === t && styles.towerPillActive]}
+              >
+                <Text style={[styles.towerPillText, towerFilter === t && styles.towerPillTextActive]}>{t}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
 
         <View style={styles.segmentWrap}>
           <Segmented<Filter>
@@ -173,6 +209,7 @@ export default function ResidentsScreen() {
               { value: 'todos', label: 'Todos' },
               { value: 'aldia', label: 'Al día' },
               { value: 'moroso', label: 'Morosos' },
+              { value: 'pendiente', label: 'Pendiente' },
             ]}
           />
         </View>
@@ -269,7 +306,7 @@ export default function ResidentsScreen() {
                    <InfoRow
                     icon="cash"
                     label="Monto mensual"
-                    value={`$${selected.monthly_fee}`}
+                    value={`Bs ${selected.monthly_fee}`}
                   />
                 )}
 
@@ -300,6 +337,7 @@ export default function ResidentsScreen() {
         visible={showModal}
         onClose={() => setShowModal(false)}
         initialData={modalMode === 'edit' ? selected : null}
+        existingResidents={residents}
         onSubmit={handleModalSubmit}
       />
     </SafeAreaView>
@@ -336,6 +374,59 @@ const styles = StyleSheet.create({
   segmentWrap: {
     paddingHorizontal: spacing.screen,
     paddingBottom: 14,
+    paddingTop: 8,
+  },
+
+  filterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    paddingHorizontal: 12,
+    height: 44,
+    borderRadius: 12,
+    marginLeft: 8,
+    marginBottom: 16,
+  },
+  filterBtnActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterBtnText: {
+    fontSize: 14,
+    fontWeight: fontWeight.medium,
+    color: colors.text,
+  },
+  filterBtnTextActive: {
+    color: '#fff',
+  },
+  towersScroll: {
+    paddingHorizontal: spacing.screen,
+    paddingBottom: 14,
+    gap: 8,
+  },
+  towerPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+  },
+  towerPillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  towerPillText: {
+    fontSize: 13,
+    fontWeight: fontWeight.medium,
+    color: colors.text,
+  },
+  towerPillTextActive: {
+    color: '#fff',
+    fontWeight: fontWeight.bold,
   },
 
   list: {

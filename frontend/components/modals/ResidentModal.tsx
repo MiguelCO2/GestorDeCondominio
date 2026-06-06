@@ -16,13 +16,49 @@ import { colors, fontWeight, radius } from '../../constants/theme';
 import { Btn } from '../ui/Btn';
 import type { Resident } from '../../data/types';
 
+const TOWERS = ['Torre A-1', 'Torre B-1', 'Torre C-1', 'Torre C-2', 'Torre D-1', 'Torre E-1'];
+const FLOORS = ['1', '2', '3'];
+
+const getAptsForTowerAndFloor = (tower: string, floor: string) => {
+  if (tower === 'Torre C-1') {
+    if (floor === '1') return ['Apto. 1-D', 'Apto. 2-D', 'Apto. 3-D', 'Apto. 4-D', 'Apto. 5-D'];
+    if (floor === '2') return ['Apto. 1-E', 'Apto. 2-E', 'Apto. 3-E', 'Apto. 4-E', 'Apto. 5-E'];
+    if (floor === '3') return ['Apto. 1-F', 'Apto. 2-F', 'Apto. 3-F', 'Apto. 4-F', 'Apto. 5-F'];
+  } else {
+    if (floor === '1') return ['Apto. 1-A', 'Apto. 2-A', 'Apto. 3-A', 'Apto. 4-A', 'Apto. 5-A'];
+    if (floor === '2') return ['Apto. 1-B', 'Apto. 2-B', 'Apto. 3-B', 'Apto. 4-B', 'Apto. 5-B'];
+    if (floor === '3') return ['Apto. 1-C', 'Apto. 2-C', 'Apto. 3-C', 'Apto. 4-C', 'Apto. 5-C'];
+  }
+  return [];
+};
+
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
 interface Props {
   visible: boolean;
   onClose: () => void;
   initialData?: Resident | null;
+  existingResidents?: Resident[];
   onSubmit?: (payload: any) => void;
+}
+
+function SelectableRow({ options, selected, onSelect, disabledOptions = [] }: { options: string[], selected: string, onSelect: (val: string) => void, disabledOptions?: string[] }) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+      {options.map(opt => {
+        const isDisabled = disabledOptions.includes(opt);
+        return (
+          <Pressable 
+            key={opt}
+            onPress={() => !isDisabled && onSelect(opt)}
+            style={[styles.pill, selected === opt && styles.pillActive, isDisabled && styles.pillDisabled]}
+          >
+            <Text style={[styles.pillText, selected === opt && styles.pillTextActive, isDisabled && styles.pillTextDisabled]}>{opt}</Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
 }
 
 // Wrapper de campo: label + input.
@@ -67,15 +103,19 @@ function IconInput({
   );
 }
 
-export function ResidentModal({ visible, onClose, initialData, onSubmit }: Props) {
+export function ResidentModal({ visible, onClose, initialData, existingResidents = [], onSubmit }: Props) {
   const isEdit = !!initialData;
+
+  // Ubicación
+  const [tower, setTower] = useState('');
+  const [floor, setFloor] = useState('');
+  const [unit, setUnit] = useState('');
 
   // Campos para propietario / crear
   const [name, setName] = useState('');
-  const [unit, setUnit] = useState('');
+  const [cedula, setCedula] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [ownerStartDate, setOwnerStartDate] = useState('');
 
   // Cuota mensual
   const [monthlyFee, setMonthlyFee] = useState('');
@@ -83,47 +123,65 @@ export function ResidentModal({ visible, onClose, initialData, onSubmit }: Props
   // Campos para inquilino
   const [hasTenant, setHasTenant] = useState(false);
   const [tenantName, setTenantName] = useState('');
+  const [tenantCedula, setTenantCedula] = useState('');
   const [tenantPhone, setTenantPhone] = useState('');
   const [tenantEmail, setTenantEmail] = useState('');
-  const [tenantStartDate, setTenantStartDate] = useState('');
 
   useEffect(() => {
     if (visible && initialData) {
       setName(initialData.owner?.full_name || initialData.name || '');
-      setUnit(initialData.unit_number || initialData.unit || '');
+      // Extraemos la cédula del owner_profile o document_id si viene en el API
+      setCedula(initialData.owner?.document_id || '');
       setPhone(initialData.owner?.phone || initialData.phone || '');
       setEmail(initialData.owner?.email || initialData.email || '');
-      setOwnerStartDate(initialData.owner_start_date || '');
       setMonthlyFee(initialData.monthly_fee ? String(initialData.monthly_fee) : '');
+      
+      setTower(initialData.building || '');
+      setFloor(initialData.floor || '');
+      setUnit(initialData.unit_number || initialData.unit || '');
       
       if (initialData.tenant && initialData.tenant.email) {
         setHasTenant(true);
         setTenantName(initialData.tenant.full_name || '');
+        setTenantCedula(initialData.tenant.document_id || '');
         setTenantPhone(initialData.tenant.phone || '');
         setTenantEmail(initialData.tenant.email || '');
-        setTenantStartDate(initialData.tenant_start_date || '');
       } else {
         setHasTenant(false);
         setTenantName('');
+        setTenantCedula('');
         setTenantPhone('');
         setTenantEmail('');
-        setTenantStartDate('');
       }
     } else if (visible && !initialData) {
       // Reset
       setName('');
+      setCedula('');
+      setTower('');
+      setFloor('');
       setUnit('');
       setPhone('');
       setEmail('');
-      setOwnerStartDate('');
       setMonthlyFee('');
       setHasTenant(false);
       setTenantName('');
+      setTenantCedula('');
       setTenantPhone('');
       setTenantEmail('');
-      setTenantStartDate('');
     }
   }, [visible, initialData]);
+
+  const handleCedulaChange = (text: string, setter: (val: string) => void) => {
+    // Permitir letras V, E, J, P, números, puntos y guiones
+    const filtered = text.replace(/[^vVeEjJpP0-9.\-]/g, '').toUpperCase();
+    setter(filtered);
+  };
+
+  const handleNumberChange = (text: string, setter: (val: string) => void) => {
+    // Solo números enteros
+    const filtered = text.replace(/[^0-9]/g, '');
+    setter(filtered);
+  };
 
   const handleSubmit = () => {
     if (!name.trim() || (!isEdit && !unit.trim())) {
@@ -131,13 +189,18 @@ export function ResidentModal({ visible, onClose, initialData, onSubmit }: Props
       return;
     }
     
+    const todayDate = new Date().toISOString().split('T')[0];
     const payload: any = {
+      building: tower,
+      floor: floor,
       unit_number: isEdit ? (initialData?.unit_number || initialData?.unit) : unit.trim(),
       monthly_fee: monthlyFee ? parseFloat(monthlyFee) : null,
-      owner_start_date: ownerStartDate.trim() || null,
-      tenant_start_date: hasTenant ? (tenantStartDate.trim() || null) : null,
+      rent_fee: null,
+      owner_start_date: isEdit ? (initialData?.owner_start_date || todayDate) : todayDate,
+      tenant_start_date: hasTenant ? (isEdit && initialData?.tenant ? (initialData.tenant_start_date || todayDate) : todayDate) : null,
       owner: {
         full_name: name.trim(),
+        document_id: cedula.trim(),
         email: email.trim(),
         phone: phone.trim(),
       },
@@ -150,6 +213,7 @@ export function ResidentModal({ visible, onClose, initialData, onSubmit }: Props
       }
       payload.tenant = {
         full_name: tenantName.trim(),
+        document_id: tenantCedula.trim(),
         email: tenantEmail.trim(),
         phone: tenantPhone.trim(),
       };
@@ -160,6 +224,17 @@ export function ResidentModal({ visible, onClose, initialData, onSubmit }: Props
     onSubmit?.(payload);
     onClose();
   };
+
+  // Cálculo de disponibilidad
+  const occupiedUnits = existingResidents.filter(r => r.building === tower && r.floor === floor).map(r => r.unit);
+  const occupiedTowers = TOWERS.filter(t => {
+    let occupiedCount = 0;
+    const residentsInTower = existingResidents.filter(r => r.building === t);
+    // Para simplificar, suponemos 15 aptos por torre. (3 pisos x 5 aptos)
+    if (residentsInTower.length >= 15) return true;
+    return false;
+  });
+  const aptOptions = getAptsForTowerAndFloor(tower, floor);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -188,15 +263,46 @@ export function ResidentModal({ visible, onClose, initialData, onSubmit }: Props
               />
             </Field>
 
+            <Field label="Cédula de Identidad">
+              <IconInput
+                icon="card-outline"
+                value={cedula}
+                onChangeText={(val) => handleCedulaChange(val, setCedula)}
+                placeholder="V-12.345.678"
+                keyboardType="phone-pad"
+              />
+            </Field>
+
             {!isEdit && (
-              <Field label="Unidad / Propiedad">
-                <IconInput
-                  icon="business-outline"
-                  value={unit}
-                  onChangeText={setUnit}
-                  placeholder="Ej. Torre A · 12-B"
-                />
-              </Field>
+              <View style={styles.assignmentBox}>
+                <Field label="Torre">
+                  <SelectableRow 
+                    options={TOWERS} 
+                    selected={tower} 
+                    onSelect={(val) => { setTower(val); setFloor(''); setUnit(''); }} 
+                    disabledOptions={occupiedTowers}
+                  />
+                </Field>
+                {tower ? (
+                  <Field label="Piso">
+                    <SelectableRow 
+                      options={FLOORS} 
+                      selected={floor} 
+                      onSelect={(val) => { setFloor(val); setUnit(''); }} 
+                    />
+                  </Field>
+                ) : null}
+                {tower && floor ? (
+                  <Field label="Apartamento">
+                    <SelectableRow 
+                      options={aptOptions} 
+                      selected={unit} 
+                      onSelect={setUnit} 
+                      disabledOptions={occupiedUnits}
+                    />
+                  </Field>
+                ) : null}
+              </View>
             )}
 
             <Field label="Correo electrónico">
@@ -220,29 +326,18 @@ export function ResidentModal({ visible, onClose, initialData, onSubmit }: Props
               />
             </Field>
 
+            <Field label="Monto mensual a pagar en el condominio (Bs)">
+              <IconInput
+                icon="cash-outline"
+                value={monthlyFee}
+                onChangeText={(val) => handleNumberChange(val, setMonthlyFee)}
+                placeholder="Ej. 150"
+                keyboardType="phone-pad"
+              />
+            </Field>
+
             {isEdit && (
               <>
-                <Field label="Fecha desde cuando está el residente (YYYY-MM-DD)">
-                  <IconInput
-                    icon="calendar-outline"
-                    value={ownerStartDate}
-                    onChangeText={setOwnerStartDate}
-                    placeholder="Ej. 2024-01-15"
-                  />
-                </Field>
-
-                {!hasTenant && (
-                  <Field label="Monto mensual a pagar en el condominio ($)">
-                    <IconInput
-                      icon="cash-outline"
-                      value={monthlyFee}
-                      onChangeText={setMonthlyFee}
-                      placeholder="Ej. 50.00"
-                      keyboardType="phone-pad"
-                    />
-                  </Field>
-                )}
-
                 <View style={styles.switchRow}>
                   <Text style={styles.switchLabel}>Opción de asignar inquilino</Text>
                   <Switch
@@ -266,6 +361,16 @@ export function ResidentModal({ visible, onClose, initialData, onSubmit }: Props
                       />
                     </Field>
 
+                    <Field label="Cédula de Identidad">
+                      <IconInput
+                        icon="card-outline"
+                        value={tenantCedula}
+                        onChangeText={(val) => handleCedulaChange(val, setTenantCedula)}
+                        placeholder="V-12.345.678"
+                        keyboardType="phone-pad"
+                      />
+                    </Field>
+
                     <Field label="Correo">
                       <IconInput
                         icon="mail-outline"
@@ -286,29 +391,19 @@ export function ResidentModal({ visible, onClose, initialData, onSubmit }: Props
                         keyboardType="phone-pad"
                       />
                     </Field>
-
-                    <Field label="Monto mensual a pagar de condominio ($)">
-                      <IconInput
-                        icon="cash-outline"
-                        value={monthlyFee}
-                        onChangeText={setMonthlyFee}
-                        placeholder="Ej. 50.00"
-                        keyboardType="phone-pad"
-                      />
-                    </Field>
-                    
-                    <Field label="Fecha desde cuando está el inquilino (YYYY-MM-DD)">
-                      <IconInput
-                        icon="calendar-outline"
-                        value={tenantStartDate}
-                        onChangeText={setTenantStartDate}
-                        placeholder="Ej. 2024-05-01"
-                      />
-                    </Field>
                   </View>
                 )}
               </>
             )}
+
+            <View style={styles.legendBox}>
+              <Ionicons name="information-circle-outline" size={20} color={colors.primary} />
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={styles.legendText}>
+                  Fecha límite de pago de condominio: del 01 al 09 de cada mes
+                </Text>
+              </View>
+            </View>
 
           </ScrollView>
 
@@ -421,6 +516,56 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 12,
     marginBottom: 8,
+  },
+  assignmentBox: {
+    backgroundColor: '#f8fafc',
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+  },
+  pill: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+  },
+  pillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  pillDisabled: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.borderSubtle,
+    opacity: 0.5,
+  },
+  pillText: {
+    fontSize: 13,
+    fontWeight: fontWeight.medium,
+    color: colors.text,
+  },
+  pillTextActive: {
+    color: '#fff',
+    fontWeight: fontWeight.bold,
+  },
+  pillTextDisabled: {
+    color: colors.textMuted,
+  },
+  legendBox: {
+    flexDirection: 'row',
+    backgroundColor: colors.surfaceSoft,
+    padding: 14,
+    borderRadius: 12,
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  legendText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
   footer: {
     flexDirection: 'row',

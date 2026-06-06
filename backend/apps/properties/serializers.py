@@ -3,16 +3,32 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from .models import Property
 from apps.condominiums.models import Condominium
+from apps.residents.models import ResidentProfile
+from apps.payments.models import Payment
+from django.utils import timezone
 
 User = get_user_model()
 
 class UserNestedSerializer(serializers.ModelSerializer):
+    document_id = serializers.CharField(required=False, allow_blank=True)
+
     class Meta:
         model = User
-        fields = ['id', 'full_name', 'email', 'phone']
+        fields = ['id', 'full_name', 'email', 'phone', 'document_id']
         extra_kwargs = {
             'email': {'validators': []}, # Remove unique validator for nested updates
         }
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        try:
+            if hasattr(instance, 'resident_profile') and instance.resident_profile:
+                ret['document_id'] = instance.resident_profile.document_id
+            else:
+                ret['document_id'] = ""
+        except Exception:
+            ret['document_id'] = ""
+        return ret
 
 class PropertySerializer(serializers.ModelSerializer):
     owner = UserNestedSerializer(required=False, allow_null=True)
@@ -24,16 +40,37 @@ class PropertySerializer(serializers.ModelSerializer):
     )
     property_type = serializers.CharField(required=False)
 
+    payment_status = serializers.SerializerMethodField()
+
     class Meta:
         model = Property
         fields = [
             'id', 'condominium', 'property_type', 'building', 'floor', 'unit_number',
-            'status', 'owner', 'tenant', 'monthly_fee', 'owner_start_date', 'tenant_start_date',
+            'status', 'payment_status', 'owner', 'tenant', 'monthly_fee', 'rent_fee', 'owner_start_date', 'tenant_start_date',
             'created_at'
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['id', 'created_at', 'payment_status']
 
-    def _handle_user_data(self, user_data, instance=None):
+    def get_payment_status(self, obj):
+        profiles = []
+        if obj.owner and hasattr(obj.owner, 'resident_profile'):
+            profiles.append(obj.owner.resident_profile)
+        if obj.tenant and hasattr(obj.tenant, 'resident_profile'):
+            profiles.append(obj.tenant.resident_profile)
+            
+        if not profiles:
+            return 'al-dia'
+            
+        payments = Payment.objects.filter(residente__in=profiles)
+        
+        if payments.filter(estado='MOROSO').exists():
+            return 'moroso'
+        if payments.filter(estado='PENDIENTE').exists():
+            return 'pendiente'
+            
+        return 'al-dia'
+
+    def _handle_user_data(self, user_data, instance=None, resident_type="owner"):
         if not user_data:
             return None
             
@@ -55,7 +92,6 @@ class PropertySerializer(serializers.ModelSerializer):
             if 'phone' in user_data:
                 user.phone = user_data['phone']
             user.save()
-            return user
         else:
             # Create new user
             username = email.split('@')[0]
@@ -66,12 +102,29 @@ class PropertySerializer(serializers.ModelSerializer):
                 username = f"{base_username}{counter}"
                 counter += 1
                 
-            return User.objects.create(
+            user = User.objects.create(
                 username=username,
                 email=email,
                 full_name=user_data.get('full_name', ''),
                 phone=user_data.get('phone', '')
             )
+        
+        # Update or create ResidentProfile for document_id
+        if 'document_id' in user_data:
+            # Note: We assign condominium below when creating the Property
+            profile, created = ResidentProfile.objects.get_or_create(
+                user=user,
+                defaults={
+                    'resident_type': resident_type,
+                    'document_id': user_data['document_id'],
+                    'condominium_id': 1  # Will be updated if necessary
+                }
+            )
+            if not created and user_data['document_id']:
+                profile.document_id = user_data['document_id']
+                profile.save()
+
+        return user
 
     @transaction.atomic
     def create(self, validated_data):
@@ -89,14 +142,43 @@ class PropertySerializer(serializers.ModelSerializer):
         if 'property_type' not in validated_data:
             validated_data['property_type'] = 'apartment'
             
-        owner = self._handle_user_data(owner_data)
-        tenant = self._handle_user_data(tenant_data)
+        owner = self._handle_user_data(owner_data, resident_type="owner")
+        tenant = self._handle_user_data(tenant_data, resident_type="tenant")
         
         property_instance = Property.objects.create(
             owner=owner,
             tenant=tenant,
             **validated_data
         )
+
+        today = timezone.localdate()
+
+        if owner and property_instance.monthly_fee:
+            profile = ResidentProfile.objects.filter(user=owner).first()
+            if profile:
+                Payment.objects.create(
+                    monto=property_instance.monthly_fee,
+                    tipo='MENSUALIDAD',
+                    estado='PENDIENTE',
+                    descripcion=f'Condominio - {property_instance.building} {property_instance.unit_number} - Mes {today.month}',
+                    residente=profile,
+                    residente_nombre=owner.full_name or owner.email,
+                    unidad=f'{property_instance.building} {property_instance.unit_number}'
+                )
+
+        if tenant and property_instance.rent_fee:
+            profile = ResidentProfile.objects.filter(user=tenant).first()
+            if profile:
+                Payment.objects.create(
+                    monto=property_instance.rent_fee,
+                    tipo='MENSUALIDAD',
+                    estado='PENDIENTE',
+                    descripcion=f'Alquiler - {property_instance.building} {property_instance.unit_number} - Mes {today.month}',
+                    residente=profile,
+                    residente_nombre=tenant.full_name or tenant.email,
+                    unidad=f'{property_instance.building} {property_instance.unit_number}'
+                )
+
         return property_instance
 
     @transaction.atomic
@@ -107,7 +189,7 @@ class PropertySerializer(serializers.ModelSerializer):
             if not owner_data:
                 instance.owner = None
             else:
-                instance.owner = self._handle_user_data(owner_data, instance.owner)
+                instance.owner = self._handle_user_data(owner_data, instance.owner, resident_type="owner")
 
         # Handle tenant
         if 'tenant' in validated_data:
@@ -116,7 +198,7 @@ class PropertySerializer(serializers.ModelSerializer):
                 instance.tenant = None
                 instance.tenant_start_date = None
             else:
-                instance.tenant = self._handle_user_data(tenant_data, instance.tenant)
+                instance.tenant = self._handle_user_data(tenant_data, instance.tenant, resident_type="tenant")
         
         # Handle simple fields
         for attr, value in validated_data.items():
