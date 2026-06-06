@@ -8,16 +8,19 @@ export interface PropertyUser {
   full_name: string;
   email: string;
   phone: string;
+  document_id?: string;
 }
 
 export interface Resident {
   id: number;
-  unit_number: string;
-  monthly_fee: string | null;
-  owner_start_date: string | null;
-  tenant_start_date: string | null;
-  owner: PropertyUser | null;
-  tenant: PropertyUser | null;
+  unit_number?: string;
+  monthly_fee?: string | null;
+  owner_start_date?: string | null;
+  tenant_start_date?: string | null;
+  owner?: PropertyUser | null;
+  tenant?: PropertyUser | null;
+  building?: string;
+  floor?: string;
   
   // UI computed fields for backwards compatibility or easy rendering
   name: string;

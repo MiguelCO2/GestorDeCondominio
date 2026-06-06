@@ -42,3 +42,25 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"{self.tipo} - ${self.monto} ({self.estado})"
+
+
+class Expense(models.Model):
+    CATEGORIAS = [
+        ('MANTENIMIENTO', 'Mantenimiento'),
+        ('SEGURIDAD', 'Seguridad'),
+        ('SERVICIOS', 'Servicios'),
+        ('ADMINISTRACION', 'Administración'),
+        ('OTROS', 'Otros'),
+    ]
+
+    categoria = models.CharField(max_length=50, choices=CATEGORIAS, default='OTROS')
+    descripcion = models.CharField(max_length=255)
+    monto = models.DecimalField(max_digits=10, decimal_places=2)
+    fecha = models.DateField()
+    torre = models.CharField(max_length=100)  # e.g. 'Torre A-1', 'Torre B-1'
+    comprobante = models.FileField(upload_to='comprobantes/', null=True, blank=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.categoria} - {self.descripcion} (${self.monto}) - {self.torre}"
+

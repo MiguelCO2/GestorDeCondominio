@@ -26,8 +26,24 @@ export default function More() {
     onPress?: () => void;
   }[] = [
     {
+      id: 'expenses',
+      icon: 'receipt-outline',
+      label: 'Gastos',
+      desc: 'Control de egresos y facturas',
+      color: '#ea580c',
+      onPress: () => router.push('/expenses'),
+    },
+    {
+      id: 'payments',
+      icon: 'wallet-outline',
+      label: 'Pagos',
+      desc: 'Ingresos y abonos de residentes',
+      color: '#16a34a',
+      onPress: () => router.push('/(tabs)/payments'),
+    },
+    {
       id: 'debtors',
-      icon: 'alert-circle',
+      icon: 'alert-circle-outline',
       label: 'Morosos',
       desc: `${DEBTORS.length} residentes pendientes`,
       color: '#dc2626',

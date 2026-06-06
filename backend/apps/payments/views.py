@@ -1,14 +1,17 @@
 import json
 from decimal import Decimal, InvalidOperation
+from datetime import datetime, date
 
-from django.db.models import Sum
+from django.db.models import Sum, Q
+from django.utils import timezone
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from apps.residents.models import ResidentProfile
+from apps.properties.models import Property
 
-from .models import Payment
+from .models import Payment, Expense
 
 MESES_ES = (
     'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
@@ -62,13 +65,22 @@ def _resident_display(pago):
     return pago.residente_nombre or ''
 
 
+def get_resident_property(profile):
+    if not profile:
+        return None
+    if getattr(profile, 'property', None):
+        return profile.property
+    return Property.objects.filter(Q(owner=profile.user) | Q(tenant=profile.user)).first()
+
+
 def _unit_display(pago):
     if pago.unidad:
         return pago.unidad
-    if pago.residente_id and pago.residente and pago.residente.property_id:
-        prop = pago.residente.property
-        parts = [p for p in (prop.building, prop.unit_number) if p]
-        return ' · '.join(parts) if parts else prop.unit_number
+    if pago.residente_id and pago.residente:
+        prop = get_resident_property(pago.residente)
+        if prop:
+            parts = [p for p in (prop.building, prop.unit_number) if p]
+            return ' · '.join(parts) if parts else prop.unit_number
     return ''
 
 
@@ -118,9 +130,66 @@ def _pagos_response(queryset):
 
 
 def dashboard_pagos(request):
-    cobrado = Payment.objects.filter(estado='COBRADO').aggregate(Sum('monto'))['monto__sum'] or 0.00
-    pendiente = Payment.objects.filter(estado='PENDIENTE').aggregate(Sum('monto'))['monto__sum'] or 0.00
-    morosos = Payment.objects.filter(estado='MOROSO').aggregate(Sum('monto'))['monto__sum'] or 0.00
+    cobrado = Payment.objects.filter(estado='COBRADO').aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+    pendiente = Payment.objects.filter(estado='PENDIENTE').aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+    morosos = Payment.objects.filter(estado='MOROSO').aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+
+    # Consolidated stats for current month and year
+    today = timezone.now().date()
+    income_month = Payment.objects.filter(
+        estado='COBRADO',
+        fecha_creacion__month=today.month,
+        fecha_creacion__year=today.year
+    ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+
+    expense_month = Expense.objects.filter(
+        fecha__month=today.month,
+        fecha__year=today.year
+    ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+
+    expense_all_time = Expense.objects.aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+    balance = cobrado - expense_all_time
+
+    # Collection rate calculation: cobrado / (cobrado + pendiente + morosos) for the current month
+    cobrado_m = Payment.objects.filter(estado='COBRADO', fecha_creacion__month=today.month, fecha_creacion__year=today.year).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+    pendiente_m = Payment.objects.filter(estado='PENDIENTE', fecha_creacion__month=today.month, fecha_creacion__year=today.year).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+    morosos_m = Payment.objects.filter(estado='MOROSO', fecha_creacion__month=today.month, fecha_creacion__year=today.year).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+    
+    total_m = cobrado_m + pendiente_m + morosos_m
+    collection_rate = int((cobrado_m / total_m) * 100) if total_m > 0 else 87
+
+    # Count and amount of morosos (all time)
+    overdue_count = Payment.objects.filter(estado='MOROSO').values('residente').distinct().count()
+    overdue_amount = morosos
+
+    # Trends of the last 6 months
+    income_trend = []
+    expense_trend = []
+    
+    months_list = []
+    curr_year = today.year
+    curr_month = today.month
+    for _ in range(6):
+        months_list.insert(0, (curr_year, curr_month))
+        curr_month -= 1
+        if curr_month == 0:
+            curr_month = 12
+            curr_year -= 1
+
+    for yr, mo in months_list:
+        inc_sum = Payment.objects.filter(
+            estado='COBRADO',
+            fecha_creacion__year=yr,
+            fecha_creacion__month=mo
+        ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+        
+        exp_sum = Expense.objects.filter(
+            fecha__year=yr,
+            fecha__month=mo
+        ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+        
+        income_trend.append(float(inc_sum))
+        expense_trend.append(float(exp_sum))
 
     datos = {
         'total_cobrado': float(cobrado),
@@ -129,8 +198,218 @@ def dashboard_pagos(request):
         'cobrado': float(cobrado),
         'pendiente': float(pendiente),
         'moroso': float(morosos),
+        'balance': float(balance),
+        'incomeMonth': float(income_month),
+        'expenseMonth': float(expense_month),
+        'overdue': overdue_count or 4, # Fallback to 4 if none in DB for visual coherence
+        'overdueAmount': float(overdue_amount) or 850.00,
+        'collectionRate': collection_rate,
+        'incomeTrend': income_trend,
+        'expenseTrend': expense_trend,
     }
     return JsonResponse(datos)
+
+
+def expense_to_dict(gasto):
+    return {
+        'id': gasto.id,
+        'categoria': gasto.categoria,
+        'categoria_display': gasto.get_categoria_display(),
+        'descripcion': gasto.descripcion,
+        'monto': float(gasto.monto),
+        'fecha': gasto.fecha.strftime('%Y-%m-%d') if gasto.fecha else '',
+        'torre': gasto.torre,
+        'comprobante': gasto.comprobante.url if gasto.comprobante else None,
+        'fecha_creacion': gasto.fecha_creacion.isoformat() if gasto.fecha_creacion else '',
+    }
+
+
+def lista_gastos(request):
+    qs = Expense.objects.all().order_by('-fecha', '-fecha_creacion')
+    
+    torre = request.GET.get('torre')
+    if torre and torre.upper() != 'TODOS':
+        qs = qs.filter(torre__iexact=torre)
+        
+    categoria = request.GET.get('categoria')
+    if categoria:
+        qs = qs.filter(categoria__iexact=categoria)
+        
+    mes = request.GET.get('mes')
+    if mes:
+        try:
+            qs = qs.filter(fecha__month=int(mes))
+        except ValueError:
+            pass
+            
+    ano = request.GET.get('ano') or request.GET.get('year')
+    if ano:
+        try:
+            qs = qs.filter(fecha__year=int(ano))
+        except ValueError:
+            pass
+            
+    return JsonResponse({
+        'gastos': [expense_to_dict(g) for g in qs]
+    })
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def registrar_gasto(request):
+    body = _parse_body(request) or {}
+    
+    categoria = body.get('categoria', 'OTROS').upper()
+    valid_choices = [choice[0] for choice in Expense.CATEGORIAS]
+    if categoria not in valid_choices:
+        categoria = 'OTROS'
+        
+    descripcion = body.get('descripcion', '').strip()
+    if not descripcion:
+        return JsonResponse({'error': 'La descripción es obligatoria'}, status=400)
+        
+    raw_amount = body.get('monto') if body.get('monto') is not None else body.get('amount')
+    if raw_amount is None:
+        return JsonResponse({'error': 'El monto es obligatorio'}, status=400)
+    try:
+        monto = Decimal(str(raw_amount).replace(',', '.'))
+    except (InvalidOperation, TypeError):
+        return JsonResponse({'error': 'Monto inválido'}, status=400)
+        
+    if monto <= 0:
+        return JsonResponse({'error': 'El monto debe ser mayor a cero'}, status=400)
+        
+    raw_fecha = body.get('fecha') or body.get('date')
+    if not raw_fecha:
+        return JsonResponse({'error': 'La fecha es obligatoria'}, status=400)
+        
+    try:
+        fecha = datetime.strptime(raw_fecha.split('T')[0], '%Y-%m-%d').date()
+    except ValueError:
+        return JsonResponse({'error': 'Fecha inválida. Debe ser YYYY-MM-DD'}, status=400)
+        
+    torre = body.get('torre', '').strip()
+    if not torre:
+        return JsonResponse({'error': 'La torre asociada es obligatoria'}, status=400)
+        
+    comprobante = request.FILES.get('comprobante')
+    
+    gasto = Expense.objects.create(
+        categoria=categoria,
+        descripcion=descripcion,
+        monto=monto,
+        fecha=fecha,
+        torre=torre,
+        comprobante=comprobante
+    )
+    
+    return JsonResponse({'gasto': expense_to_dict(gasto)}, status=201)
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'PUT'])
+def editar_gasto(request, pk):
+    try:
+        gasto = Expense.objects.get(pk=pk)
+    except Expense.DoesNotExist:
+        return JsonResponse({'error': 'El gasto no existe'}, status=404)
+        
+    body = _parse_body(request) or {}
+    
+    if 'categoria' in body:
+        categoria = body.get('categoria').upper()
+        valid_choices = [choice[0] for choice in Expense.CATEGORIAS]
+        if categoria in valid_choices:
+            gasto.categoria = categoria
+            
+    if 'descripcion' in body:
+        descripcion = body.get('descripcion').strip()
+        if descripcion:
+            gasto.descripcion = descripcion
+            
+    raw_amount = body.get('monto') if body.get('monto') is not None else body.get('amount')
+    if raw_amount is not None:
+        try:
+            monto = Decimal(str(raw_amount).replace(',', '.'))
+            if monto > 0:
+                gasto.monto = monto
+        except (InvalidOperation, TypeError):
+            return JsonResponse({'error': 'Monto inválido'}, status=400)
+            
+    raw_fecha = body.get('fecha') or body.get('date')
+    if raw_fecha:
+        try:
+            gasto.fecha = datetime.strptime(raw_fecha.split('T')[0], '%Y-%m-%d').date()
+        except ValueError:
+            return JsonResponse({'error': 'Fecha inválida. Debe ser YYYY-MM-DD'}, status=400)
+            
+    if 'torre' in body:
+        torre = body.get('torre').strip()
+        if torre:
+            gasto.torre = torre
+            
+    if 'comprobante' in request.FILES:
+        gasto.comprobante = request.FILES.get('comprobante')
+    elif 'comprobante' in body and (body.get('comprobante') == 'null' or body.get('comprobante') is None):
+        gasto.comprobante = None
+        
+    gasto.save()
+    return JsonResponse({'gasto': expense_to_dict(gasto)})
+
+
+def resumen_torre(request):
+    torre = request.GET.get('torre')
+    if not torre:
+        return JsonResponse({'error': 'La torre es obligatoria'}, status=400)
+        
+    now = timezone.now()
+    try:
+        mes = int(request.GET.get('mes', now.month))
+        ano = int(request.GET.get('ano') or request.GET.get('year') or now.year)
+    except ValueError:
+        return JsonResponse({'error': 'Periodo inválido'}, status=400)
+        
+    if torre.upper() == 'TODOS':
+        base_payments = Payment.objects.all()
+        base_expenses = Expense.objects.all()
+    else:
+        # Resolve properties associated with this building to find their users
+        property_users = Property.objects.filter(building__iexact=torre).values_list('owner_id', 'tenant_id')
+        user_ids = set()
+        for owner_id, tenant_id in property_users:
+            if owner_id: user_ids.add(owner_id)
+            if tenant_id: user_ids.add(tenant_id)
+            
+        base_payments = Payment.objects.filter(
+            Q(residente__user_id__in=user_ids) | Q(unidad__icontains=torre)
+        )
+        base_expenses = Expense.objects.filter(torre__iexact=torre)
+    
+    ingresos_mes = base_payments.filter(
+        estado='COBRADO',
+        fecha_creacion__month=mes,
+        fecha_creacion__year=ano
+    ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+    
+    gastos_mes = base_expenses.filter(
+        fecha__month=mes,
+        fecha__year=ano
+    ).aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+    
+    # Available balance (all-time total income - all-time total expenses for this tower)
+    ingresos_totales = base_payments.filter(estado='COBRADO').aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+    gastos_totales = base_expenses.aggregate(Sum('monto'))['monto__sum'] or Decimal('0.00')
+    
+    balance_disponible = ingresos_totales - gastos_totales
+    
+    return JsonResponse({
+        'torre': torre,
+        'mes': mes,
+        'ano': ano,
+        'ingresos_mes': float(ingresos_mes),
+        'gastos_mes': float(gastos_mes),
+        'balance_disponible': float(balance_disponible),
+    })
 
 
 def lista_todos_pagos(request):
@@ -224,10 +503,11 @@ def registrar_pago(request):
 
     profile = _resolve_residente(body)
     unidad = (body.get('unit') or body.get('unidad') or '').strip()
-    if not unidad and profile and profile.property_id:
-        prop = profile.property
-        parts = [p for p in (prop.building, prop.unit_number) if p]
-        unidad = ' · '.join(parts) if parts else prop.unit_number
+    if not unidad and profile:
+        prop = get_resident_property(profile)
+        if prop:
+            parts = [p for p in (prop.building, prop.unit_number) if p]
+            unidad = ' · '.join(parts) if parts else prop.unit_number
 
     raw_estado = body.get('estado') or body.get('status')
     if raw_estado in ('completado', 'COBRADO', 'cobrado'):

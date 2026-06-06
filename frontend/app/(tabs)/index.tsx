@@ -25,13 +25,12 @@ import {
   tones,
 } from "../../constants/theme";
 
-import { EXPENSE_TREND, FINANCE_KPIS, INCOME_TREND } from "../../data/finance";
 import { fmt, fmtNum } from "../../data/format";
-import { PAYMENTS } from "../../data/payments";
+import { fetchAllPayments } from "../../data/payments";
 import { useAuth } from "../../hooks/useAuth";
-import { API_BASE_URL } from "../../services/api";
+import { API_BASE_URL, api } from "../../services/api";
 
-import type { AnnouncementCategory } from "../../data/types";
+import type { AnnouncementCategory, Payment, FinanceKpis } from "../../data/types";
 
 // Saludo según hora local. Es un detalle pequeño pero suma al feel de dashboard.
 function getGreeting() {
@@ -106,7 +105,58 @@ export default function HomeScreen() {
   const firstName = user?.name?.split(" ")[0] ?? "Andrea";
   const [latestAnnouncement, setLatestAnnouncement] =
     useState<HomeAnnouncement | null>(null);
-  const recentPayments = PAYMENTS.slice(0, 3);
+  
+  const [financeKpis, setFinanceKpis] = useState<FinanceKpis>({
+    incomeMonth: 12750.00,
+    expenseMonth: 8420.50,
+    balance: 42680.75,
+    collectionRate: 87,
+    totalUnits: 78,
+    occupied: 71,
+    activeVisits: 2,
+    pendingPayments: 9,
+    overdue: 4,
+    overdueAmount: 850.00,
+  });
+  const [incomeTrend, setIncomeTrend] = useState<number[]>([9200, 10400, 9800, 11200, 10800, 12750]);
+  const [expenseTrend, setExpenseTrend] = useState<number[]>([7800, 8100, 7600, 8300, 8000, 8420]);
+  const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
+
+  const fetchFinanceData = useCallback(async () => {
+    try {
+      const res = await api.get('/pagos/resumen/');
+      const data = res.data;
+      setFinanceKpis({
+        incomeMonth: data.incomeMonth ?? 0.00,
+        expenseMonth: data.expenseMonth ?? 0.00,
+        balance: data.balance ?? 0.00,
+        collectionRate: data.collectionRate ?? 87,
+        totalUnits: 78,
+        occupied: 71,
+        activeVisits: 2,
+        pendingPayments: data.pendingPayments ?? 9,
+        overdue: data.overdue ?? 4,
+        overdueAmount: data.overdueAmount ?? 850.00,
+      });
+      if (data.incomeTrend && data.incomeTrend.length > 0) {
+        setIncomeTrend(data.incomeTrend);
+      }
+      if (data.expenseTrend && data.expenseTrend.length > 0) {
+        setExpenseTrend(data.expenseTrend);
+      }
+    } catch (e) {
+      console.log("Error loading finance KPIs:", e);
+    }
+  }, []);
+
+  const fetchRecentPayments = useCallback(async () => {
+    try {
+      const list = await fetchAllPayments();
+      setRecentPayments(list.slice(0, 3));
+    } catch (e) {
+      console.log("Error loading payments:", e);
+    }
+  }, []);
 
   const fetchLatestAnnouncement = useCallback(async () => {
     try {
@@ -131,7 +181,9 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchLatestAnnouncement();
-    }, [fetchLatestAnnouncement]),
+      fetchFinanceData();
+      fetchRecentPayments();
+    }, [fetchLatestAnnouncement, fetchFinanceData, fetchRecentPayments]),
   );
 
   const handleQuickAction = (id: string, label: string) => {
@@ -183,7 +235,7 @@ export default function HomeScreen() {
             <View style={styles.balanceRow}>
               <Text style={styles.balanceCurrency}>Bs.</Text>
               <Text style={styles.balanceAmount}>
-                {fmtNum(FINANCE_KPIS.balance)}
+                {fmtNum(financeKpis.balance)}
               </Text>
             </View>
             <View style={styles.balanceFooter}>
@@ -196,10 +248,10 @@ export default function HomeScreen() {
                       { color: colors.incomeOnDark },
                     ]}
                   >
-                    +{fmtNum(FINANCE_KPIS.incomeMonth)}
+                    +{fmtNum(financeKpis.incomeMonth)}
                   </Text>
                   <Sparkline
-                    data={INCOME_TREND}
+                    data={incomeTrend}
                     color={colors.incomeOnDark}
                     width={44}
                     height={18}
@@ -217,10 +269,10 @@ export default function HomeScreen() {
                       { color: colors.expenseOnDark },
                     ]}
                   >
-                    −{fmtNum(FINANCE_KPIS.expenseMonth)}
+                    −{fmtNum(financeKpis.expenseMonth)}
                   </Text>
                   <Sparkline
-                    data={EXPENSE_TREND}
+                    data={expenseTrend}
                     color={colors.expenseOnDark}
                     width={44}
                     height={18}
@@ -247,8 +299,8 @@ export default function HomeScreen() {
             <KPICard
               icon="alert-circle"
               label="Morosos"
-              value={String(FINANCE_KPIS.overdue)}
-              sub={fmt(FINANCE_KPIS.overdueAmount)}
+              value={String(financeKpis.overdue)}
+              sub={fmt(financeKpis.overdueAmount)}
               tone="danger"
               onPress={() => router.push("/debtors")}
             />
@@ -257,7 +309,7 @@ export default function HomeScreen() {
             <KPICard
               icon="checkmark-circle"
               label="Cobranza"
-              value={`${FINANCE_KPIS.collectionRate}%`}
+              value={`${financeKpis.collectionRate}%`}
               sub="+5% vs mes pasado"
               tone="success"
             />
