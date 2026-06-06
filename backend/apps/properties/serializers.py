@@ -109,20 +109,19 @@ class PropertySerializer(serializers.ModelSerializer):
                 phone=user_data.get('phone', '')
             )
         
-        # Update or create ResidentProfile for document_id
-        if 'document_id' in user_data:
-            # Note: We assign condominium below when creating the Property
-            profile, created = ResidentProfile.objects.get_or_create(
-                user=user,
-                defaults={
-                    'resident_type': resident_type,
-                    'document_id': user_data['document_id'],
-                    'condominium_id': 1  # Will be updated if necessary
-                }
-            )
-            if not created and user_data['document_id']:
-                profile.document_id = user_data['document_id']
-                profile.save()
+        # Update or create ResidentProfile
+        document_id = user_data.get('document_id', '')
+        profile, created = ResidentProfile.objects.get_or_create(
+            user=user,
+            defaults={
+                'resident_type': resident_type,
+                'document_id': document_id,
+                'condominium_id': 1  # Will be updated if necessary
+            }
+        )
+        if not created and document_id:
+            profile.document_id = document_id
+            profile.save()
 
         return user
 
