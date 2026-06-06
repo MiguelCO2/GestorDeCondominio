@@ -41,15 +41,6 @@ export default function More() {
       color: '#16a34a',
       onPress: () => router.push('/(tabs)/payments'),
     },
-    {
-      id: 'debtors',
-      icon: 'alert-circle-outline',
-      label: 'Morosos',
-      desc: `${DEBTORS.length} residentes pendientes`,
-      color: '#dc2626',
-      badge: String(DEBTORS.length),
-      onPress: () => router.push('/debtors'),
-    },
   ];
 
   return (

@@ -258,13 +258,6 @@ export default function AnnouncementsScreen() {
           title="Anuncios"
           subtitle={`${announcements.length} publicados`}
           large
-          right={
-            <IconBtn
-              icon="add"
-              tone="primary"
-              onPress={handleNewAnnouncement}
-            />
-          }
         />
 
         <SearchField

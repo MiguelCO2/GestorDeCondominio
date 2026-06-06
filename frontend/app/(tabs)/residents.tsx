@@ -314,6 +314,7 @@ export default function ResidentsScreen() {
                   <Btn
                     variant="subtleDanger"
                     icon="trash"
+                    full
                     onPress={handleDelete}
                   >
                     Eliminar
