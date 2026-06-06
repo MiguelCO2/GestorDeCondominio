@@ -4,11 +4,12 @@ import { useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   Alert,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  View,
+  View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -103,6 +104,19 @@ export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const firstName = user?.name?.split(" ")[0] ?? "Andrea";
+  const getProfileImageUrl = (path?: string | null) => {
+    if (!path) return null;
+  
+    if (path.startsWith("http")) {
+      return path;
+    }
+  
+    const baseUrl = API_BASE_URL.replace("/api", "");
+  
+    return `${baseUrl}${path}`;
+  };
+  
+  const profileImageUri = getProfileImageUrl(user?.profile_image);
   const [latestAnnouncement, setLatestAnnouncement] =
     useState<HomeAnnouncement | null>(null);
   
@@ -233,7 +247,11 @@ export default function HomeScreen() {
                 style={styles.profileButton}
                 onPress={() => router.push('/profile')}
               >
+                {profileImageUri ? (
+                <Image source={{ uri: profileImageUri }} style={styles.profileImage} />
+            ) : (
                 <Text style={styles.profileInitials}>{user?.initials || 'U'}</Text>
+            )}
               </Pressable>
             </View>
           </View>
@@ -490,6 +508,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "#fff",
+    overflow: "hidden",
+  },
+
+  profileImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 12,
   },
   
   profileInitials: {
