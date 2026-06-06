@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ComponentProps, useState, useEffect } from 'react';
+import { ComponentProps, useState, useEffect, useRef } from 'react';
 import {
   Alert,
   Modal,
@@ -40,6 +40,7 @@ interface Props {
   initialData?: Resident | null;
   existingResidents?: Resident[];
   onSubmit?: (payload: any) => void;
+  submitting?: boolean;
 }
 
 function SelectableRow({ options, selected, onSelect, disabledOptions = [] }: { options: string[], selected: string, onSelect: (val: string) => void, disabledOptions?: string[] }) {
@@ -103,7 +104,7 @@ function IconInput({
   );
 }
 
-export function ResidentModal({ visible, onClose, initialData, existingResidents = [], onSubmit }: Props) {
+export function ResidentModal({ visible, onClose, initialData, existingResidents = [], onSubmit, submitting = false }: Props) {
   const isEdit = !!initialData;
 
   // Ubicación
@@ -183,12 +184,24 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
     setter(filtered);
   };
 
+  const isSubmittingRef = useRef(false);
+
+  useEffect(() => {
+    if (!visible) {
+      isSubmittingRef.current = false;
+    }
+  }, [visible]);
+
   const handleSubmit = () => {
+    if (isSubmittingRef.current || submitting) return;
+    
     if (!name.trim() || (!isEdit && !unit.trim())) {
       Alert.alert('Faltan datos', 'Nombre y unidad son obligatorios.');
       return;
     }
     
+    isSubmittingRef.current = true;
+
     const todayDate = new Date().toISOString().split('T')[0];
     const payload: any = {
       building: tower,
@@ -209,6 +222,7 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
     if (hasTenant) {
       if (!tenantName.trim() || !tenantEmail.trim()) {
         Alert.alert('Faltan datos', 'Nombre y correo del inquilino son obligatorios.');
+        setLocalSubmitting(false);
         return;
       }
       payload.tenant = {
@@ -222,6 +236,9 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
     }
 
     onSubmit?.(payload);
+    // Don't close immediately here if submitting is handled by parent,
+    // but the original code did onClose() here. We'll let the parent handle the close
+    // or rely on the previous behavior.
     onClose();
   };
 
@@ -411,8 +428,8 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
             <Btn variant="secondary" full onPress={onClose}>
               Cancelar
             </Btn>
-            <Btn variant="primary" full icon="checkmark" onPress={handleSubmit}>
-              Guardar
+            <Btn variant="primary" full icon="checkmark" onPress={handleSubmit} disabled={submitting}>
+              {submitting ? 'Guardando...' : 'Guardar'}
             </Btn>
           </View>
         </View>
