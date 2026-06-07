@@ -39,6 +39,8 @@ import {
 import { API_BASE_URL } from '../services/api';
 
 const TOWERS = ['TODOS', 'Torre A-1', 'Torre B-1', 'Torre C-1', 'Torre C-2', 'Torre D-1', 'Torre E-1'];
+// Para el formulario de gastos: nunca se puede guardar con torre='TODOS'
+const TOWER_NAMES = ['Torre A-1', 'Torre B-1', 'Torre C-1', 'Torre C-2', 'Torre D-1', 'Torre E-1'];
 const MONTHS = [
   { value: 1, label: 'Ene' },
   { value: 2, label: 'Feb' },
@@ -282,53 +284,55 @@ export default function ExpensesScreen() {
       />
 
       {/* Selector de Torres Horizontal */}
-      {!isResident && (
-        <View style={{ marginBottom: 12 }}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.towersScroll}>
-            {TOWERS.map((t) => (
-              <Pressable
-                key={t}
-                onPress={() => setSelectedTower(t)}
-                style={[styles.towerPill, selectedTower === t && styles.towerPillActive]}
-              >
-                <Text style={[styles.towerPillText, selectedTower === t && styles.towerPillTextActive]}>
-                  {t === 'TODOS' ? 'Todas las Torres' : t}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-      )}
+      <View style={{ marginBottom: 12 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.towersScroll}>
+          {TOWERS.map((t) => (
+            <Pressable
+              key={t}
+              onPress={() => setSelectedTower(t)}
+              style={[styles.towerPill, selectedTower === t && styles.towerPillActive]}
+            >
+              <Text style={[styles.towerPillText, selectedTower === t && styles.towerPillTextActive]}>
+                {t === 'TODOS' ? 'Todas las Torres' : t}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Tarjetas de Resumen Financiero de la Torre */}
         <View style={styles.summaryContainer}>
-          <View style={[styles.summaryCard, { backgroundColor: '#f0f9ff' }]}>
-            <Text style={[styles.summaryLabel, { color: '#0369a1' }]}>INGRESOS MES</Text>
-            <Text style={[styles.summaryValue, { color: '#0c4a6e' }]}>
-              Bs. {summary.ingresos_mes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </Text>
-          </View>
+          {!isResident && (
+            <View style={[styles.summaryCard, { backgroundColor: '#f0f9ff' }]}>
+              <Text style={[styles.summaryLabel, { color: '#0369a1' }]}>INGRESOS MES</Text>
+              <Text style={[styles.summaryValue, { color: '#0c4a6e' }]}>
+                Bs. {summary.ingresos_mes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Text>
+            </View>
+          )}
 
-          <View style={[styles.summaryCard, { backgroundColor: '#fff7ed' }]}>
+          <View style={[styles.summaryCard, { backgroundColor: '#fff7ed', width: isResident ? '100%' : undefined }]}>
             <Text style={[styles.summaryLabel, { color: '#c2410c' }]}>GASTOS MES</Text>
             <Text style={[styles.summaryValue, { color: '#7c2d12' }]}>
               Bs. {summary.gastos_mes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
           </View>
 
-          <View style={[styles.summaryCard, { backgroundColor: '#f0fdf4', width: '100%', marginTop: 8 }]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={[styles.summaryLabel, { color: '#15803d' }]}>BALANCE DISPONIBLE</Text>
-              <Ionicons name="pie-chart" size={16} color="#15803d" />
+          {!isResident && (
+            <View style={[styles.summaryCard, { backgroundColor: '#f0fdf4', width: '100%', marginTop: 8 }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={[styles.summaryLabel, { color: '#15803d' }]}>BALANCE DISPONIBLE</Text>
+                <Ionicons name="pie-chart" size={16} color="#15803d" />
+              </View>
+              <Text style={[styles.summaryValueLarge, { color: '#14532d' }]}>
+                Bs. {summary.balance_disponible.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Text>
+              <Text style={{ fontSize: 10, color: '#166534', marginTop: 2, fontWeight: '500' }}>
+                Histórico acumulado de la torre
+              </Text>
             </View>
-            <Text style={[styles.summaryValueLarge, { color: '#14532d' }]}>
-              Bs. {summary.balance_disponible.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </Text>
-            <Text style={{ fontSize: 10, color: '#166534', marginTop: 2, fontWeight: '500' }}>
-              Histórico acumulado de la torre
-            </Text>
-          </View>
+          )}
         </View>
 
         {/* Botón de Filtros */}
@@ -575,7 +579,7 @@ export default function ExpensesScreen() {
               <View style={styles.field}>
                 <Text style={styles.label}>Torre Asociada</Text>
                 <View style={styles.towerSelectorGrid}>
-                  {TOWERS.map((t) => (
+                  {TOWER_NAMES.map((t) => (
                     <Pressable
                       key={t}
                       onPress={() => setModalTower(t)}

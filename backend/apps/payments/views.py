@@ -522,16 +522,24 @@ def lista_gastos(request):
 
     qs = Expense.objects.all().order_by('-fecha', '-fecha_creacion')
     
+    torre = request.GET.get('torre')
+
     if user.role == 'resident':
         prop, _ = _get_resident_prop_and_profile(user)
         if prop:
-            qs = qs.filter(torre__iexact=prop.building)
+            from django.db.models import Q as _Q
+            if torre and torre.upper() != 'TODOS':
+                # El residente seleccionó una torre explícita → mostrar esa torre
+                qs = qs.filter(torre__iexact=torre)
+            else:
+                # Sin filtro de torre → mostrar su propia torre + gastos generales
+                qs = qs.filter(_Q(torre__iexact=prop.building) | _Q(torre__iexact='TODOS'))
         else:
             qs = qs.none()
-
-    torre = request.GET.get('torre')
-    if torre and torre.upper() != 'TODOS':
-        qs = qs.filter(torre__iexact=torre)
+    else:
+        # Admin / board / accountant: respetar filtro de torre si se envió
+        if torre and torre.upper() != 'TODOS':
+            qs = qs.filter(torre__iexact=torre)
         
     categoria = request.GET.get('categoria')
     if categoria:
