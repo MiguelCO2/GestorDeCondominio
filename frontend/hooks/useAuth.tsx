@@ -115,22 +115,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const restoreSession = async () => {
-      try {
-        const session = await getSession();
-        if (session) {
-          setAccessToken(session.access);
-          setRefreshToken(session.refresh);
-          setUser(session.user);
-          api.defaults.headers.common.Authorization = `Bearer ${session.access}`;
-        }
-      } catch (err) {
-        console.error('Error restoring session:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    restoreSession();
+    const t = setTimeout(() => setLoading(false), 600);
+    return () => clearTimeout(t);
   }, []);
 
   const signIn = async (email: string, password: string) => {
