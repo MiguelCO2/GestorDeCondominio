@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Keyboard,
   Modal,
   Pressable,
   ScrollView,
@@ -229,6 +230,8 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
   }, [visible]);
 
   const handleSelectUser = (user: UserSuggestion) => {
+    Keyboard.dismiss();
+  
     setSelectedUserId(user.id);
     setName(user.full_name || '');
     setUsername(user.username || '');
@@ -357,7 +360,7 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
             </Pressable>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always" keyboardDismissMode="none">
             
             <Text style={styles.sectionTitle}>{isEdit ? 'Datos del Propietario' : 'Datos Principales'}</Text>
 
@@ -391,7 +394,7 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
                       <Pressable
                         key={item.id}
                         style={styles.suggestionItem}
-                        onPress={() => handleSelectUser(item)}
+                        onPressIn={() => handleSelectUser(item)}
                       >
                         {imageUri ? (
                           <Image source={{ uri: imageUri }} style={styles.suggestionAvatar} />

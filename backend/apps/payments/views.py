@@ -771,6 +771,7 @@ def lista_pendientes(request):
 @permission_classes([IsAuthenticated])
 def registrar_pago(request):
     user = request.user
+
     if user.role == 'security':
         return JsonResponse({'error': 'No autorizado'}, status=403)
 
@@ -798,21 +799,44 @@ def registrar_pago(request):
     if not metodo:
         return JsonResponse({'error': 'Método de pago inválido'}, status=400)
 
+    profile = None
+    unidad = ''
+
     if user.role == 'resident':
         prop, profile = _get_resident_prop_and_profile(user)
+
         if not prop:
             return JsonResponse({'error': 'No tienes un apartamento asociado para registrar pagos.'}, status=403)
+
         if not profile:
             return JsonResponse({'error': 'No existe perfil de residente para tu usuario.'}, status=403)
+
         residente_nombre = user.full_name or user.email or user.username
         unidad = f"{prop.building} · {prop.unit_number}"
+
     else:
-        residente_nombre = (body.get('resident') or body.get('residente') or body.get('residente_nombre') or '').strip()
+        residente_nombre = (
+            body.get('resident') or
+            body.get('residente') or
+            body.get('residente_nombre') or
+            ''
+        ).strip()
+
         if not residente_nombre:
             return JsonResponse({'error': 'El residente es obligatorio'}, status=400)
 
-        profile = _resolve_residente(body)
+        resident_id = body.get('resident_id') or body.get('residente_id')
+
+        if resident_id:
+            profile = ResidentProfile.objects.filter(id=resident_id).first()
+
+        if not profile:
+            profile = ResidentProfile.objects.filter(
+                user__full_name__icontains=residente_nombre
+            ).first()
+
         unidad = (body.get('unit') or body.get('unidad') or '').strip()
+
         if not unidad and profile:
             prop = get_resident_property(profile)
             if prop:
@@ -820,6 +844,7 @@ def registrar_pago(request):
                 unidad = ' · '.join(parts) if parts else prop.unit_number
 
     raw_estado = body.get('estado') or body.get('status')
+
     if raw_estado in ('completado', 'COBRADO', 'cobrado'):
         estado = 'COBRADO'
     elif raw_estado in ('moroso', 'MOROSO'):
@@ -827,24 +852,41 @@ def registrar_pago(request):
     elif raw_estado in ('pendiente', 'PENDIENTE'):
         estado = 'PENDIENTE'
     else:
-        if user.role == 'resident':
-            estado = 'PENDIENTE'
-        else:
-            estado = 'COBRADO'
+        estado = 'PENDIENTE' if user.role == 'resident' else 'COBRADO'
 
     descripcion = (body.get('descripcion') or body.get('description') or '').strip()
+
     if not descripcion:
         descripcion = f"{TIPO_BACK_TO_FRONT.get(tipo, tipo)} - {residente_nombre}"
 
-    pago = Payment.objects.create(
-        monto=monto,
-        tipo=tipo,
-        estado=estado,
-        descripcion=descripcion,
-        metodo_pago=metodo,
-        residente=profile,
-        residente_nombre=residente_nombre,
-        unidad=unidad,
-    )
+    pago_pendiente = None
+
+    if profile:
+        pago_pendiente = Payment.objects.filter(
+            residente=profile,
+            estado__in=['PENDIENTE', 'MOROSO'],
+        ).order_by('fecha_creacion').first()
+
+    if pago_pendiente and estado == 'COBRADO':
+        pago = pago_pendiente
+        pago.monto = monto
+        pago.tipo = tipo
+        pago.estado = 'COBRADO'
+        pago.descripcion = descripcion
+        pago.metodo_pago = metodo
+        pago.residente_nombre = residente_nombre
+        pago.unidad = unidad
+        pago.save()
+    else:
+        pago = Payment.objects.create(
+            monto=monto,
+            tipo=tipo,
+            estado=estado,
+            descripcion=descripcion,
+            metodo_pago=metodo,
+            residente=profile,
+            residente_nombre=residente_nombre,
+            unidad=unidad,
+        )
 
     return JsonResponse({'pago': payment_to_dict(pago)}, status=201)
