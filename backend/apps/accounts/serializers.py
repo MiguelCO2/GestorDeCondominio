@@ -92,6 +92,31 @@ class UserSerializer(serializers.ModelSerializer):
             return f"{prop.building} · {prop.unit_number}"
         return None
 
+
+class UserSuggestionSerializer(serializers.ModelSerializer):
+    document_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = (
+            "id",
+            "username",
+            "full_name",
+            "email",
+            "phone",
+            "profile_image",
+            "document_id",
+        )
+
+    def get_document_id(self, obj):
+        try:
+            if hasattr(obj, "resident_profile") and obj.resident_profile:
+                return obj.resident_profile.document_id
+        except Exception:
+            pass
+
+        return ""
+
 class RegisterSerializer(serializers.ModelSerializer):
     
     username = serializers.CharField(

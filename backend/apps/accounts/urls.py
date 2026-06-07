@@ -9,6 +9,7 @@ from .views import (
     VerifyEmailAPIView,
     VerifyEmailChangeAPIView,
     ResendEmailVerificationAPIView,
+    UserSuggestionsAPIView,
 )
 
 
@@ -19,6 +20,7 @@ urlpatterns = [
     path("resend-verification/", ResendEmailVerificationAPIView.as_view(), name="resend_verification"),
     path("profile/", ProfileAPIView.as_view(), name="profile"),
     path("verify-email-change/", VerifyEmailChangeAPIView.as_view(), name="verify_email_change"),
+    path("users/suggestions/", UserSuggestionsAPIView.as_view(), name="user_suggestions"),
     path("refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("me/", MeAPIView.as_view(), name="me"),
 ]

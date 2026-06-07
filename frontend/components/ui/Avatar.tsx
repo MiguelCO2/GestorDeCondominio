@@ -1,16 +1,33 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import { fontWeight } from '../../constants/theme';
 
 interface Props {
   text: string;
   color?: string;
   size?: number;
+  image?: string | null;
 }
 
-// Pequeño helper local: añade alpha hex (00–ff) a un color #rrggbb.
 const withAlpha = (hex: string, alphaHex: string) => hex + alphaHex;
 
-export function Avatar({ text, color = '#2563eb', size = 40 }: Props) {
+export function Avatar({ text, color = '#2563eb', size = 40, image }: Props) {
+  if (image) {
+    return (
+      <Image
+        source={{ uri: image }}
+        style={[
+          styles.box,
+          {
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: '#e5e7eb',
+          },
+        ]}
+      />
+    );
+  }
+
   return (
     <View
       style={[
@@ -38,5 +55,8 @@ export function Avatar({ text, color = '#2563eb', size = 40 }: Props) {
 }
 
 const styles = StyleSheet.create({
-  box: { alignItems: 'center', justifyContent: 'center' },
+  box: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

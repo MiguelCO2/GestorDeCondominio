@@ -2,17 +2,30 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.contrib.auth import get_user_model
 
 from .serializers import (
     LoginSerializer,
     RegisterSerializer,
     UserSerializer,
+    UserSuggestionSerializer,
     ProfileUpdateSerializer,
     VerifyEmailSerializer,
     VerifyEmailChangeSerializer,
     ResendEmailVerificationSerializer,
 )
 
+import unicodedata
+
+
+User = get_user_model()
+
+
+def normalize_text(value):
+    value = value or ""
+    value = unicodedata.normalize("NFD", value)
+    value = "".join(char for char in value if unicodedata.category(char) != "Mn")
+    return value.lower().strip()
 
 class LoginAPIView(APIView):
     permission_classes = [AllowAny]
@@ -116,6 +129,32 @@ class MeAPIView(APIView):
 
     def get(self, request):
         serializer = UserSerializer(request.user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+class UserSuggestionsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        query = normalize_text(request.query_params.get("q", ""))
+
+        if len(query) < 2:
+            return Response([], status=status.HTTP_200_OK)
+
+        users = User.objects.filter(is_active=True).order_by("full_name", "username")
+
+        matches = []
+        for user in users:
+            searchable = normalize_text(
+                f"{user.full_name} {user.username} {user.email} {user.phone}"
+            )
+
+            if query in searchable:
+                matches.append(user)
+
+            if len(matches) >= 10:
+                break
+
+        serializer = UserSuggestionSerializer(matches, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 class ProfileAPIView(APIView):

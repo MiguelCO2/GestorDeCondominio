@@ -1,14 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  View,
-  ActivityIndicator,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -17,7 +17,6 @@ import { AppBar } from '../../components/ui/AppBar';
 import { Avatar } from '../../components/ui/Avatar';
 import { Btn } from '../../components/ui/Btn';
 import { FAB } from '../../components/ui/FAB';
-import { IconBtn } from '../../components/ui/IconBtn';
 import { Pill } from '../../components/ui/Pill';
 import { SearchField } from '../../components/ui/SearchField';
 import { Segmented } from '../../components/ui/Segmented';
@@ -29,10 +28,22 @@ import {
   spacing,
 } from '../../constants/theme';
 import type { Resident, ResidentStatus } from '../../data/types';
-import { api } from '../../services/api';
+import { API_BASE_URL, api } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
 
 type Filter = 'todos' | 'aldia' | 'moroso' | 'pendiente';
+
+function getMediaUrl(path?: string | null) {
+  if (!path) return null;
+
+  if (path.startsWith('http')) {
+    return path;
+  }
+
+  const baseUrl = API_BASE_URL.replace('/api', '');
+
+  return `${baseUrl}${path}`;
+}
 
 const TOWERS = ['Torre A-1', 'Torre B-1', 'Torre C-1', 'Torre C-2', 'Torre D-1', 'Torre E-1'];
 
@@ -58,6 +69,7 @@ function mapPropertyToResident(prop: any): Resident {
     status: prop.payment_status || 'pendiente',
     avatar: initial,
     color: '#2563eb', // Can add random color generator if needed
+    avatarImage: getMediaUrl(activeUser?.profile_image),
   };
 }
 
@@ -156,10 +168,35 @@ export default function ResidentsScreen() {
         await api.put(`/properties/${selected.id}/`, payload);
         closeDetail();
       }
+  
       fetchResidents();
-    } catch (err) {
-      console.error(err);
-      Alert.alert('Error', 'Hubo un problema al guardar el residente.');
+      setShowModal(false);
+    } catch (err: any) {
+      const backendError = err?.response?.data;
+  
+      console.log('Error guardando residente:', backendError || err?.message || err);
+  
+      let message = 'Hubo un problema al guardar el residente.';
+  
+      if (backendError) {
+        if (typeof backendError === 'string') {
+          message = backendError;
+        } else if (backendError.owner) {
+          message = Array.isArray(backendError.owner)
+            ? backendError.owner[0]
+            : String(backendError.owner);
+        } else if (backendError.tenant) {
+          message = Array.isArray(backendError.tenant)
+            ? backendError.tenant[0]
+            : String(backendError.tenant);
+        } else if (backendError.detail) {
+          message = backendError.detail;
+        } else {
+          message = JSON.stringify(backendError);
+        }
+      }
+  
+      Alert.alert('No se pudo guardar', message);
     }
   };
 
@@ -250,7 +287,7 @@ export default function ResidentsScreen() {
                       pressed && { opacity: 0.85 },
                     ]}
                   >
-                    <Avatar text={r.avatar} color={r.color} size={44} />
+                    <Avatar text={r.avatar} image={r.avatarImage} color={r.color} size={44} />
                     <View style={styles.cardMid}>
                       <Text style={styles.cardName} numberOfLines={1}>
                         {r.name}

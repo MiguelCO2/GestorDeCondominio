@@ -1,20 +1,23 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ComponentProps, useState, useEffect, useRef } from 'react';
+import { ComponentProps, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  Image,
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
-  View,
-  Switch,
+  View
 } from 'react-native';
 
 import { colors, fontWeight, radius } from '../../constants/theme';
-import { Btn } from '../ui/Btn';
 import type { Resident } from '../../data/types';
+import { api, API_BASE_URL } from '../../services/api';
+import { Btn } from '../ui/Btn';
 
 const TOWERS = ['Torre A-1', 'Torre B-1', 'Torre C-1', 'Torre C-2', 'Torre D-1', 'Torre E-1'];
 const FLOORS = ['1', '2', '3'];
@@ -33,6 +36,28 @@ const getAptsForTowerAndFloor = (tower: string, floor: string) => {
 };
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
+
+type UserSuggestion = {
+  id: number;
+  username: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  profile_image?: string | null;
+  document_id?: string;
+};
+
+function getMediaUrl(path?: string | null) {
+  if (!path) return null;
+
+  if (path.startsWith('http')) {
+    return path;
+  }
+
+  const baseUrl = API_BASE_URL.replace('/api', '');
+
+  return `${baseUrl}${path}`;
+}
 
 interface Props {
   visible: boolean;
@@ -117,6 +142,11 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
   const [cedula, setCedula] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [suggestions, setSuggestions] = useState<UserSuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Cuota mensual
   const [monthlyFee, setMonthlyFee] = useState('');
@@ -135,6 +165,8 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
       setCedula(initialData.owner?.document_id || '');
       setPhone(initialData.owner?.phone || initialData.phone || '');
       setEmail(initialData.owner?.email || initialData.email || '');
+      setUsername(initialData.owner?.username || '');
+      setSelectedUserId(initialData.owner?.id || null);
       setMonthlyFee(initialData.monthly_fee ? String(initialData.monthly_fee) : '');
       
       setTower(initialData.building || '');
@@ -163,6 +195,10 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
       setUnit('');
       setPhone('');
       setEmail('');
+      setUsername('');
+      setSelectedUserId(null);
+      setSuggestions([]);
+      setShowSuggestions(false);
       setMonthlyFee('');
       setHasTenant(false);
       setTenantName('');
@@ -192,6 +228,51 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
     }
   }, [visible]);
 
+  const handleSelectUser = (user: UserSuggestion) => {
+    setSelectedUserId(user.id);
+    setName(user.full_name || '');
+    setUsername(user.username || '');
+    setEmail(user.email || '');
+    setPhone(user.phone || '');
+    setCedula(user.document_id || '');
+    setShowSuggestions(false);
+  };
+
+  useEffect(() => {
+    if (!visible || isEdit) return;
+  
+    const cleanQuery = name.trim();
+  
+    if (cleanQuery.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+  
+    const timeout = setTimeout(async () => {
+      try {
+        setSuggestionsLoading(true);
+  
+        const res = await api.get('/auth/users/suggestions/', {
+          params: {
+            q: cleanQuery,
+          },
+        });
+  
+        setSuggestions(res.data || []);
+        setShowSuggestions(true);
+      } catch (error) {
+        console.log('User suggestions error:', error);
+        setSuggestions([]);
+        setShowSuggestions(false);
+      } finally {
+        setSuggestionsLoading(false);
+      }
+    }, 300);
+  
+    return () => clearTimeout(timeout);
+  }, [name, visible, isEdit]);
+
   const handleSubmit = () => {
     if (isSubmittingRef.current || submitting) return;
     
@@ -200,6 +281,14 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
       return;
     }
     
+    if (!isEdit && !selectedUserId) {
+      Alert.alert(
+        'Usuario no seleccionado',
+        'Debes seleccionar un usuario registrado de la lista de sugerencias. Si escribiste los datos manualmente, deben coincidir con una cuenta existente.'
+      );
+      return;
+    }
+
     isSubmittingRef.current = true;
 
     const todayDate = new Date().toISOString().split('T')[0];
@@ -212,6 +301,8 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
       owner_start_date: isEdit ? (initialData?.owner_start_date || todayDate) : todayDate,
       tenant_start_date: hasTenant ? (isEdit && initialData?.tenant ? (initialData.tenant_start_date || todayDate) : todayDate) : null,
       owner: {
+        id: selectedUserId,
+        username: username.trim(),
         full_name: name.trim(),
         document_id: cedula.trim(),
         email: email.trim(),
@@ -274,9 +365,74 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
               <IconInput
                 icon="person-outline"
                 value={name}
-                onChangeText={setName}
+                onChangeText={(value) => {
+                  setName(value);
+                  setSelectedUserId(null);
+                  setUsername('');
+                  setEmail('');
+                  setPhone('');
+                  setCedula('');
+                }}
                 placeholder="Ej. María Fernández"
                 autoCapitalize="words"
+              />
+              {!isEdit && showSuggestions ? (
+                <View style={styles.suggestionsBox}>
+                  {suggestionsLoading ? (
+                    <View style={styles.suggestionLoading}>
+                      <ActivityIndicator size="small" color={colors.primary} />
+                      <Text style={styles.suggestionMuted}>Buscando usuarios...</Text>
+                  </View>
+                ) : suggestions.length > 0 ? (
+                  suggestions.map((item) => {
+                    const imageUri = getMediaUrl(item.profile_image);
+
+                    return (
+                      <Pressable
+                        key={item.id}
+                        style={styles.suggestionItem}
+                        onPress={() => handleSelectUser(item)}
+                      >
+                        {imageUri ? (
+                          <Image source={{ uri: imageUri }} style={styles.suggestionAvatar} />
+                        ) : (
+                          <View style={styles.suggestionAvatarFallback}>
+                            <Text style={styles.suggestionAvatarText}>
+                              {(item.full_name || item.username || 'U').charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.suggestionName} numberOfLines={1}>
+                          {item.full_name || 'Sin nombre'}
+                        </Text>
+                        <Text style={styles.suggestionMeta} numberOfLines={1}>
+                          @{item.username} · {item.email}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })
+              ) : (
+                <Text style={styles.suggestionEmpty}>
+                  No hay usuarios registrados con ese nombre.
+                </Text>
+              )}
+            </View>
+          ) : null}
+            </Field>
+
+            <Field label="Nombre de usuario">
+              <IconInput
+                icon="at-outline"
+                value={username}
+                onChangeText={(value) => {
+                  setUsername(value);
+                  setSelectedUserId(null);
+                }}
+                placeholder="username"
+                autoCapitalize="none"
               />
             </Field>
 
@@ -326,7 +482,10 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
               <IconInput
                 icon="mail-outline"
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(value) => {
+                  setEmail(value);
+                  setSelectedUserId(null);
+                }}
                 placeholder="correo@mail.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -337,7 +496,10 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
               <IconInput
                 icon="call-outline"
                 value={phone}
-                onChangeText={setPhone}
+                onChangeText={(value) => {
+                  setPhone(value);
+                  setSelectedUserId(null);
+                }}
                 placeholder="+58 414 0000000"
                 keyboardType="phone-pad"
               />
@@ -439,6 +601,76 @@ export function ResidentModal({ visible, onClose, initialData, existingResidents
 }
 
 const styles = StyleSheet.create({
+  suggestionsBox: {
+    marginTop: 8,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSubtle,
+  },
+  
+  suggestionAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.surfaceSoft,
+  },
+  
+  suggestionAvatarFallback: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.primary + '1a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  
+  suggestionAvatarText: {
+    color: colors.primary,
+    fontWeight: fontWeight.bold,
+    fontSize: 13,
+  },
+  
+  suggestionName: {
+    fontSize: 13.5,
+    fontWeight: fontWeight.semibold,
+    color: colors.text,
+  },
+  
+  suggestionMeta: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  
+  suggestionLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+  },
+  
+  suggestionMuted: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  
+  suggestionEmpty: {
+    fontSize: 12.5,
+    color: colors.textMuted,
+    padding: 12,
+  },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(15,23,42,0.5)',

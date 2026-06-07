@@ -5,9 +5,11 @@ export type ResidentStatus = 'al-dia' | 'moroso' | 'pendiente';
 
 export interface PropertyUser {
   id: number;
+  username: string;
   full_name: string;
   email: string;
   phone: string;
+  profile_image?: string | null;
   document_id?: string;
 }
 
@@ -21,6 +23,7 @@ export interface Resident {
   tenant?: PropertyUser | null;
   building?: string;
   floor?: string;
+  avatarImage?: string | null;
   
   // UI computed fields for backwards compatibility or easy rendering
   name: string;
