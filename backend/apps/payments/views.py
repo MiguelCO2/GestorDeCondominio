@@ -526,16 +526,36 @@ def lista_gastos(request):
 
     if user.role == 'resident':
         prop, _ = _get_resident_prop_and_profile(user)
+
         if prop:
             from django.db.models import Q as _Q
-            if torre and torre.upper() != 'TODOS':
-                # El residente seleccionó una torre explícita → mostrar esa torre
+
+            torre_normalizada = (torre or '').strip().upper()
+
+            es_todas_las_torres = torre_normalizada in [
+                'TODOS',
+                'TODAS',
+                'TODAS LAS TORRES',
+                'TODAS_LAS_TORRES',
+            ]
+
+            if torre and es_todas_las_torres:
+                # El residente seleccionó "Todas las torres" → mostrar todos los gastos
+                qs = qs
+
+            elif torre:
+                # El residente seleccionó una torre específica
                 qs = qs.filter(torre__iexact=torre)
+
             else:
-                # Sin filtro de torre → mostrar su propia torre + gastos generales
-                qs = qs.filter(_Q(torre__iexact=prop.building) | _Q(torre__iexact='TODOS'))
-        else:
-            qs = qs.none()
+                # Sin filtro explícito → mantener comportamiento actual
+                # Solo su torre + gastos generales
+                qs = qs.filter(
+                    _Q(torre__iexact=prop.building) |
+                    _Q(torre__iexact='TODOS') |
+                    _Q(torre__iexact='TODAS LAS TORRES')
+                )
+
     else:
         # Admin / board / accountant: respetar filtro de torre si se envió
         if torre and torre.upper() != 'TODOS':
